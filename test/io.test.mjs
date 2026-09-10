@@ -18,6 +18,7 @@ const config = {
   amount: "0.05",
   minReceiveEth: "0.000001",
   maxSpend: "0.05",
+  feeReserve: "0.01",
   durationSeconds: 1800,
   intervalSeconds: 30,
   cooldownSeconds: 30,
@@ -26,10 +27,11 @@ test("HTTP refill binds signing key, preserves credential, reconciles and spends
   const dir = await mkdtemp(join(tmpdir(), "glue-io-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   let payments = 0,
-    signatures = 0;
+    signatures = 0,
+    remaining = "50000";
   const state = initialState(config),
     key = "0x3333333333333333333333333333333333333333";
-  state.authorization = { phase: "active", key, policyHash: policyHash(config), limit: "50000" };
+  state.authorization = { phase: "active", key, policyHash: policyHash(config), limit: "60000" };
   await atomicWrite(join(dir, "state.json"), state);
   const server = createServer(async (req, res) => {
     let raw = "";
@@ -71,7 +73,7 @@ test("HTTP refill binds signing key, preserves credential, reconciles and spends
         chainId: 4217,
         expiry: Math.floor(Date.now() / 1000) + 1800,
         limited: true,
-        limit: "50000",
+        limit: remaining,
       };
     },
     credential: async (p, _response, passed) => {
@@ -84,6 +86,13 @@ test("HTTP refill binds signing key, preserves credential, reconciles and spends
   };
   const io = createIO(config, dir, { api, rpc: api + "/rpc" }, wallet);
   assert.equal((await tick(config, state, io)).status, "quote");
+  for (remaining of ["48145", "50000"]) {
+    await assert.rejects(tick(config, state, io, { execute: true }), /plus network fees/);
+    assert.equal(state.spent, "0");
+    assert.equal(signatures, 0);
+    assert.equal(payments, 0);
+  }
+  remaining = "60000";
   assert.equal((await tick(config, state, io, { execute: true })).status, "submitted");
   const saved = JSON.parse(await readFile(join(dir, "state.json")));
   assert.equal((await tick(config, saved, io)).status, "delivered");

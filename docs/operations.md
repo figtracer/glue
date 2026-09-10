@@ -8,7 +8,7 @@
 
 The key is limited to the selected token and its transfer methods. The SDK stores it privately in the job's state directory, separately from your usual Tempo CLI wallet. MPP signing explicitly selects this key. Glue never asks for your passkey or copies your existing wallet key.
 
-`maxSpend` requests a finite Tempo token allowance and bounds Glue's cumulative MPP charges. Network fees are additional; `--accept-network-fees` acknowledges this. Destination, threshold and route checks remain Glue's job logic. Do not treat those fields as onchain permissions.
+`maxSpend` bounds Glue's cumulative MPP charges. `--fee-reserve` explicitly adds headroom for network fees to the same Tempo token allowance. For example, a 0.05 refill budget and 0.01 reserve request a 0.06 native limit. Tempo counts both transfers and network fees against that combined limit, including fees from reverted transactions. There is no separate onchain fee bucket: fees can consume the remaining allowance and stop refills early. The reserve is not an estimate or a guarantee of enough gas. `--accept-network-fees` acknowledges the additional cost. Destination, threshold and route checks remain Glue's job logic. Do not treat those fields as onchain permissions.
 
 Budget is reserved durably before signing. Unknown submissions never initiate another payment. Paid orders continue through reconciliation after key expiry or revocation. Pausing Glue stops new jobs; revoke its dedicated key in Tempo Wallet to remove signing authority.
 
@@ -27,5 +27,7 @@ No background task is installed. For cron, invoke the one-shot `run` with the sa
 ## Approval recovery
 
 `authorize` without `--approve` previews a new grant. Once an attempt exists, repeating the command only looks for its saved signed grant; it never renews a key or replenishes an allowance. Interrupted approvals without a saved grant remain unresolved. Keep the state and inspect Tempo Wallet instead of deleting files to retry.
+
+Existing jobs without a fee reserve keep their original grant and state; Glue never enlarges their allowance. A new grant requires an explicit fee reserve. If the remaining native allowance cannot cover a refill plus fees, execution stops before signing.
 
 Version 1 jobs retain their original state and can reconcile existing payments. New grants use version 2 jobs with `--duration`; a new job is a new allowance, so stop the previous worker first.

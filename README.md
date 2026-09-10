@@ -28,7 +28,7 @@ glue init --policy .glue/base.local.json \
   --sender YOUR_TEMPO_WALLET --recipient YOUR_BASE_WALLET \
   --chain base --token pathusd \
   --below-eth 0.00002 --amount 0.05 --min-receive-eth 0.000001 \
-  --max-spend 0.25 --duration 30m
+  --max-spend 0.25 --fee-reserve 0.01 --duration 30m
 
 glue run --policy .glue/base.local.json
 ```
@@ -43,7 +43,7 @@ glue authorize --policy .glue/base.local.json --approve
 glue run --policy .glue/base.local.json --execute --accept-network-fees --watch
 ```
 
-`maxSpend` caps MPP token charges. Tempo network fees are additional. Keep the policy and state: deleting them can reset the budget. Read the [operating guide](docs/operations.md) before leaving a worker running.
+`maxSpend` caps MPP token charges. `feeReserve` adds network-fee headroom to the Tempo grant: this example approves 0.26 total, with at most 0.25 used for refills. Tempo enforces the combined token limit; the reserve is not a fee quote. Keep the policy and state: deleting them can reset the budget. Read the [operating guide](docs/operations.md) before leaving a worker running.
 
 ## Development
 

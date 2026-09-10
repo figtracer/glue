@@ -32,6 +32,8 @@ test("CLI creates a duration-based job and previews its Tempo grant without logg
     "0.000001",
     "--max-spend",
     "0.05",
+    "--fee-reserve",
+    "0.01",
     "--duration",
     "30m",
   ]);
@@ -46,6 +48,10 @@ test("CLI creates a duration-based job and previews its Tempo grant without logg
     "--state-dir",
     join(dir, "state"),
   ]);
-  assert.equal(JSON.parse(result.stdout).status, "approval_required");
+  const preview = JSON.parse(result.stdout);
+  assert.equal(preview.status, "approval_required");
+  assert.equal(preview.amount, "0.06");
+  assert.equal(preview.payments, "0.05");
+  assert.equal(preview.feeReserve, "0.01");
   await assert.rejects(readFile(join(dir, "state/state.json")), { code: "ENOENT" });
 });

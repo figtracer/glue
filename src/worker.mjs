@@ -35,6 +35,7 @@ export function validate(config) {
     "intervalSeconds",
     "cooldownSeconds",
   ];
+  if (config?.version === 2 && Object.hasOwn(config, "feeReserve")) fields.push("feeReserve");
   if (
     !config ||
     Object.keys(config).some((key) => !fields.includes(key)) ||
@@ -56,6 +57,11 @@ export function validate(config) {
     ["maxSpend", 6],
   ])
     if (units(config[key], precision) <= 0n) throw new Error(`${key} must be positive.`);
+  if (config.feeReserve !== undefined) {
+    if (units(config.feeReserve, 6) <= 0n) throw new Error("feeReserve must be positive.");
+    if (units(config.maxSpend, 6) + units(config.feeReserve, 6) >= 2n ** 256n)
+      throw new Error("Tempo allowance exceeds uint256.");
+  }
   if (units(config.amount, 6) > units(config.maxSpend, 6))
     throw new Error("A refill exceeds the total charge budget.");
   if (

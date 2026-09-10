@@ -1,3 +1,4 @@
+import { formatUnits } from "viem";
 import { address, policyHash, units, validateState } from "./worker.mjs";
 
 export function checkGrant(config, approval, grant, now) {
@@ -34,11 +35,18 @@ export async function authorize(config, state, io, { approve = false } = {}) {
   const remaining = units(config.maxSpend, 6) - BigInt(state.spent);
   if (remaining < units(config.amount, 6)) throw new Error("Policy budget exhausted.");
   if (!state.authorization) {
+    if (!config.feeReserve)
+      throw new Error(
+        "A new Tempo grant requires an explicit --fee-reserve. Keep existing job state.",
+      );
+    const allowance = remaining + units(config.feeReserve, 6);
     const preview = {
       status: "approval_required",
       wallet: config.sender,
       token: config.token,
-      amount: `${remaining / 1000000n}.${(remaining % 1000000n).toString().padStart(6, "0")}`,
+      amount: formatUnits(allowance, 6),
+      payments: formatUnits(remaining, 6),
+      feeReserve: config.feeReserve,
       durationSeconds: config.durationSeconds,
       message:
         "Approve a dedicated Glue key in Tempo Wallet. Tempo owns its expiry and token allowance.",
@@ -48,7 +56,7 @@ export async function authorize(config, state, io, { approve = false } = {}) {
     state.authorization = {
       phase: "pending",
       policyHash: policyHash(config),
-      limit: remaining.toString(),
+      limit: allowance.toString(),
       requestExpiry: Math.floor(io.now() / 1000) + config.durationSeconds,
     };
     await io.save(state);
