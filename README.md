@@ -35,13 +35,24 @@ glue run --policy .glue/base.local.json
 
 Replace the addresses. `--duration 30m` requests a 30-minute Tempo key when you authorize. The amounts are examples; provider minimums and gas costs vary. This previews a quote. Nothing is paid or scheduled on install.
 
-Preview the key allowance, then approve it in Tempo Wallet with your passkey:
+Preview the key allowance, then install the local gas service. Tempo Wallet opens for your passkey approval:
 
 ```sh
 glue authorize --policy .glue/base.local.json
-glue authorize --policy .glue/base.local.json --approve
-glue run --policy .glue/base.local.json --execute --accept-network-fees --watch
+glue install gas --policy .glue/base.local.json --accept-network-fees --approve
+glue status
+glue logs gas
 ```
+
+The service checks once a minute by default, including after you close the terminal. It uses launchd on macOS or a systemd user timer on Linux. One `gas` service is supported. Your user session and network must be available.
+
+```sh
+glue stop gas
+glue start gas
+glue uninstall gas
+```
+
+Stopping or uninstalling preserves the policy, grant and payment journal. Start reuses existing authority; it never renews it. For a foreground worker, use `glue run --policy FILE --execute --accept-network-fees --watch` instead of installing.
 
 `maxSpend` caps MPP token charges. `feeReserve` adds network-fee headroom to the Tempo grant: this example approves 0.26 total, with at most 0.25 used for refills. Tempo enforces the combined token limit; the reserve is not a fee quote. Keep the policy and state: deleting them can reset the budget. Read the [operating guide](docs/operations.md) before leaving a worker running.
 

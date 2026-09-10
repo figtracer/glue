@@ -1,5 +1,7 @@
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 import { checkGrant } from "./authorization.mjs";
 import { createWallet } from "./wallet.mjs";
 import { CHAINS, units } from "./worker.mjs";
@@ -11,11 +13,20 @@ export const DEFAULT_RPC = {
   optimism: "https://mainnet.optimism.io",
 };
 
+export function stateDirectory(policy, override, home = homedir()) {
+  const id = createHash("sha256").update(policy).digest("hex").slice(0, 24);
+  return resolve(override ?? join(home, ".local/state/glue", id));
+}
+
 export async function atomicWrite(path, value) {
+  return atomicWriteText(path, JSON.stringify(value, null, 2) + "\n");
+}
+
+export async function atomicWriteText(path, text) {
   const tmp = `${path}.tmp`;
   const handle = await open(tmp, "w", 0o600);
   try {
-    await handle.writeFile(JSON.stringify(value, null, 2) + "\n");
+    await handle.writeFile(text);
     await handle.sync();
   } finally {
     await handle.close();
@@ -36,10 +47,13 @@ export async function lock(directory) {
   try {
     file = await open(path, "wx", 0o600);
   } catch (error) {
-    if (error.code === "EEXIST")
-      throw new Error(
+    if (error.code === "EEXIST") {
+      const busy = new Error(
         `Worker lock exists: ${path}. If its recorded PID has exited, remove only run.lock; keep state.json and receipts.`,
       );
+      busy.code = "GLUE_LOCKED";
+      throw busy;
+    }
     throw error;
   }
   await file.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
