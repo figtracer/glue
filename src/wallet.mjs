@@ -165,7 +165,7 @@ export function createWallet(config, directory) {
           }),
         ],
       });
-      const prepared = await payment.prepare(response);
+      const prepared = await payment.preparePayment(response);
       checkChallenge(config, pending, prepared.challenge);
       const credential = await prepared.createCredential();
       await write;
