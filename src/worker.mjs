@@ -61,7 +61,7 @@ export function validate(config) {
   if (
     typeof config.expiresAt !== "string" ||
     !Number.isFinite(Date.parse(config.expiresAt)) ||
-    !/Z$/.test(config.expiresAt)
+    !config.expiresAt.endsWith("Z")
   )
     throw new Error("expiresAt must be a UTC ISO timestamp ending in Z.");
   for (const key of ["intervalSeconds", "cooldownSeconds"])
