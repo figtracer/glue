@@ -13,7 +13,7 @@ const help = `glue — bounded gas refills through Glue + Tempo Wallet
 
 init --policy FILE --sender ADDRESS --recipient ADDRESS --chain base
      --token pathusd --below-eth 0.00002 --amount 0.25
-     --min-receive-eth 0.00001 --max-spend 1 --expires-at UTC_TIMESTAMP
+     --min-receive-eth 0.00001 --max-spend 1 --duration 30m
 authorize --policy FILE [--approve]
 run  --policy FILE [--execute --accept-network-fees] [--watch]
 status --policy FILE
@@ -24,10 +24,10 @@ MPP token charges, NOT additional Tempo network fees. Executing requires
 --accept-network-fees and an already authorized Tempo Wallet.
 
 --interval-seconds 60 / --cooldown-seconds 300 are init options.
---rpc URL / --api URL / --tempo PATH / --state-dir DIR are runtime options.
+--rpc URL / --api URL / --state-dir DIR are runtime options.
 Use one persistent state directory; deleting/copying it can reset budgets.
-authorize previews a shared-key allowance update; --approve opens Tempo passkey approval.
-No VK, daemon installation or private-key handling. Key expiry remains managed by Tempo.
+authorize previews a dedicated key grant; --approve opens Tempo passkey approval.
+Tempo owns the grant expiry and token limit. No VK or daemon installation.
 `;
 
 async function main() {
@@ -44,12 +44,11 @@ async function main() {
         "amount",
         "min-receive-eth",
         "max-spend",
-        "expires-at",
+        "duration",
         "interval-seconds",
         "cooldown-seconds",
         "rpc",
         "api",
-        "tempo",
         "state-dir",
       ].map((key) => [key, { type: "string" }]),
       ...["execute", "accept-network-fees", "watch", "approve", "help"].map((key) => [
@@ -72,7 +71,7 @@ async function main() {
   const path = command === "init" ? resolve(v.policy) : await realpath(resolve(v.policy));
   if (command === "init") {
     const config = validate({
-      version: 1,
+      version: 2,
       sender: v.sender,
       recipient: v.recipient,
       chain: v.chain,
@@ -81,11 +80,14 @@ async function main() {
       amount: v.amount,
       minReceiveEth: v["min-receive-eth"],
       maxSpend: v["max-spend"],
-      expiresAt: v["expires-at"],
+      durationSeconds: (() => {
+        const match = /^(\d+)(s|m|h)$/.exec(v.duration ?? "");
+        if (!match) throw new Error("Use --duration 30m (s, m or h).");
+        return Number(match[1]) * { s: 1, m: 60, h: 3600 }[match[2]];
+      })(),
       intervalSeconds: Number(v["interval-seconds"] ?? 60),
       cooldownSeconds: Number(v["cooldown-seconds"] ?? 300),
     });
-    if (Date.parse(config.expiresAt) <= Date.now()) throw new Error("Choose a future expiry.");
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, JSON.stringify(config, null, 2) + "\n", { flag: "wx", mode: 0o600 });
     console.log(`Policy created: ${path}\nNothing enabled. Run without --execute to preview.`);
@@ -96,12 +98,23 @@ async function main() {
   const id = createHash("sha256").update(path).digest("hex").slice(0, 24);
   const directory = resolve(v["state-dir"] ?? join(homedir(), ".local/state/glue", id));
   if (command === "status") {
+    const state = await loadState(directory);
+    let authority;
+    if (state?.authorization?.phase === "active") {
+      try {
+        const grant = await createIO(config, directory, v).authority(state.authorization.key);
+        authority = {
+          ...grant,
+          expiresAt: new Date(grant.expiry * 1000).toISOString(),
+          remainingSeconds: Math.max(0, grant.expiry - Math.floor(Date.now() / 1000)),
+        };
+      } catch (error) {
+        authority = { status: "unavailable", message: error.message };
+        process.exitCode = 1;
+      }
+    }
     console.log(
-      JSON.stringify(
-        { policy: config, stateDirectory: directory, state: await loadState(directory) },
-        null,
-        2,
-      ),
+      JSON.stringify({ policy: config, stateDirectory: directory, state, authority }, null, 2),
     );
     return;
   }

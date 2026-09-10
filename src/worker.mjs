@@ -31,7 +31,7 @@ export function validate(config) {
     "amount",
     "minReceiveEth",
     "maxSpend",
-    "expiresAt",
+    config?.version === 2 ? "durationSeconds" : "expiresAt",
     "intervalSeconds",
     "cooldownSeconds",
   ];
@@ -42,7 +42,7 @@ export function validate(config) {
   )
     throw new Error("Invalid policy fields; use init to generate a policy.");
   if (
-    config.version !== 1 ||
+    ![1, 2].includes(config.version) ||
     !address(config.sender) ||
     !address(config.recipient) ||
     !CHAINS[config.chain] ||
@@ -59,9 +59,15 @@ export function validate(config) {
   if (units(config.amount, 6) > units(config.maxSpend, 6))
     throw new Error("A refill exceeds the total charge budget.");
   if (
-    typeof config.expiresAt !== "string" ||
-    !Number.isFinite(Date.parse(config.expiresAt)) ||
-    !config.expiresAt.endsWith("Z")
+    config.version === 2 &&
+    (!Number.isSafeInteger(config.durationSeconds) || config.durationSeconds < 30)
+  )
+    throw new Error("Choose a duration of at least 30 seconds.");
+  if (
+    config.version === 1 &&
+    (typeof config.expiresAt !== "string" ||
+      !Number.isFinite(Date.parse(config.expiresAt)) ||
+      !config.expiresAt.endsWith("Z"))
   )
     throw new Error("expiresAt must be a UTC ISO timestamp ending in Z.");
   for (const key of ["intervalSeconds", "cooldownSeconds"])
@@ -174,11 +180,16 @@ export async function tick(config, state, io, { execute = false } = {}) {
     return { status: "pending", order: q.orderId };
   }
   if (state.paused) return { status: "paused" };
-  if (now >= Date.parse(config.expiresAt)) return { status: "expired" };
+  if (config.version === 1 && now >= Date.parse(config.expiresAt)) return { status: "expired" };
   if (BigInt(state.spent) + units(config.amount, 6) > units(config.maxSpend, 6))
     return { status: "budget_exhausted" };
   if (state.lastDeliveredAt !== null && now - state.lastDeliveredAt < config.cooldownSeconds * 1000)
     return { status: "cooldown" };
+  if (execute) {
+    const expiry = await io.verifyWallet();
+    if (!Number.isFinite(expiry)) throw new Error("Tempo expiry unavailable.");
+    if (io.now() >= expiry) return { status: "expired" };
+  }
   const balance = await io.balance();
   if (balance >= units(config.belowEth, 18)) {
     if (state.pending) {
@@ -219,13 +230,12 @@ export async function tick(config, state, io, { execute = false } = {}) {
       minimumEth: offer.minimumEth,
       order: state.pending.key,
     };
-  const authorizedUntil = (await io.verifyWallet()) ?? Date.parse(config.expiresAt);
+  const authorizedUntil = await io.verifyWallet();
+  if (!Number.isFinite(authorizedUntil)) throw new Error("Tempo expiry unavailable.");
   // Recheck time and live balance after quote/wallet IO, immediately before charging.
-  if (io.now() >= Math.min(authorizedUntil, Date.parse(config.expiresAt), offer.expiresAt))
-    return { status: "expired" };
+  if (io.now() >= Math.min(authorizedUntil, offer.expiresAt)) return { status: "expired" };
   if ((await io.balance()) >= units(config.belowEth, 18)) return { status: "funded" };
-  if (io.now() >= Math.min(authorizedUntil, Date.parse(config.expiresAt), offer.expiresAt))
-    return { status: "expired" };
+  if (io.now() >= Math.min(authorizedUntil, offer.expiresAt)) return { status: "expired" };
   state.pending.phase = "submitting";
   state.pending.submittedAt = new Date(io.now()).toISOString();
   state.spent = (BigInt(state.spent) + units(config.amount, 6)).toString();

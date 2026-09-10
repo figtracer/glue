@@ -6,7 +6,7 @@ Report suspected vulnerabilities privately to the maintainer at **me@figtracer.c
 
 ## Boundaries
 
-The current worker trusts Glue's quote/fulfillment API and your configured Tempo Wallet. Tempo Wallet handles passkey approval of the shared key allowance. Local policy files are not an onchain permission boundary. `maxSpend` excludes additional source network fees. See [operations](docs/operations.md).
+The current worker trusts Glue's quote/fulfillment API and the dedicated key approved in Tempo Wallet. Tempo Wallet handles passkey approval of the dedicated key allowance and expiry. Local policy files are not an onchain permission boundary. `maxSpend` excludes additional source network fees. See [operations](docs/operations.md).
 
 Uncertain submissions must remain pending. Do not initiate another payment to recover from a timeout. Never reset a user's saved state, broaden wallet permissions or perform a live payment without explicit authorization.
 

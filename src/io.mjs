@@ -1,12 +1,9 @@
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { homedir } from "node:os";
-import { checkAuthorization } from "./authorization.mjs";
-import { CHAINS, TOKENS } from "./worker.mjs";
+import { checkGrant } from "./authorization.mjs";
+import { createWallet } from "./wallet.mjs";
+import { CHAINS } from "./worker.mjs";
 
-const exec = promisify(execFile);
 export const DEFAULT_RPC = {
   base: "https://mainnet.base.org",
   ethereum: "https://ethereum-rpc.publicnode.com",
@@ -81,10 +78,14 @@ async function jsonFetch(url, options = {}) {
   return { status: response.status, body, challenge: response.headers.get("WWW-Authenticate") };
 }
 
-export function createIO(config, directory, options = {}) {
+export function createIO(
+  config,
+  directory,
+  options = {},
+  wallet = createWallet(config, directory),
+) {
   const api = safeUrl(options.api ?? "https://glue.figtracer.com");
   const rpc = safeUrl(options.rpc ?? DEFAULT_RPC[config.chain]);
-  const tempo = options.tempo ?? join(homedir(), ".tempo/bin/tempo");
   async function chainCall(method, params) {
     const reply = await jsonFetch(rpc, {
       method: "POST",
@@ -96,62 +97,24 @@ export function createIO(config, directory, options = {}) {
     return BigInt(reply.body.result);
   }
   let authorizedUntil = 0;
-  async function wallet() {
-    const { stdout } = await exec(
-      tempo,
-      ["wallet", "whoami", "--network", "tempo", "--format", "json"],
-      {
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-        signal: options.signal,
-      },
-    );
-    return JSON.parse(stdout);
-  }
+  let approvedKey;
   async function verifyWallet() {
     const state = await loadState(directory);
     if (state?.authorization?.phase !== "active")
-      throw new Error("Run glue authorize --policy FILE --approve before executing refills.");
-    authorizedUntil = checkAuthorization(config, state?.authorization, await wallet(), Date.now());
+      throw new Error("Run glue authorize --policy FILE --approve first.");
+    approvedKey = state.authorization.key;
+    authorizedUntil = checkGrant(
+      config,
+      state.authorization,
+      await wallet.authority(approvedKey),
+      Date.now(),
+    );
     return authorizedUntil;
   }
   return {
-    wallet,
+    connect: wallet.connect,
+    authority: wallet.authority,
     describe: (value) => console.log(JSON.stringify(value)),
-    async approveKey(key, token, limit) {
-      await new Promise((done, reject) => {
-        const child = spawn(
-          tempo,
-          [
-            "wallet",
-            "keys",
-            "update",
-            key,
-            "--network",
-            "tempo",
-            "--token",
-            token,
-            "--limit",
-            limit,
-          ],
-          {
-            stdio: "inherit",
-            signal: options.signal,
-            timeout: 16 * 60 * 1000,
-          },
-        );
-        child.once("error", reject);
-        child.once("exit", (code) =>
-          code === 0
-            ? done()
-            : reject(
-                new Error(
-                  "Tempo approval did not complete. Outcome remains unresolved; no automatic retry.",
-                ),
-              ),
-        );
-      });
-    },
     verifyWallet,
     now: () => Date.now(),
     save: (state) => atomicWrite(join(directory, "state.json"), state),
@@ -178,46 +141,31 @@ export function createIO(config, directory, options = {}) {
     async pay(pending) {
       await verifyWallet();
       options.signal?.throwIfAborted();
-      const remaining =
-        Math.min(authorizedUntil, Date.parse(config.expiresAt), pending.offer.expiresAt) -
-        Date.now();
-      if (remaining <= 0)
-        throw new Error("Approval or offer expired before payment; inspect pending state.");
-      const output = join(directory, `${pending.key}.response.json`);
-      // Create private files before invoking the CLI; it must not emit payment artifacts to the terminal.
-      await atomicWrite(output, {});
-      try {
-        await exec(
-          tempo,
-          [
-            "request",
-            new URL("/api/refuel", api).href,
-            "--network",
-            "tempo",
-            "--payment-intent",
-            "charge",
-            "--payment-token",
-            TOKENS[config.token],
-            "--max-spend",
-            config.amount,
-            "--retries",
-            "0",
-            "--timeout",
-            String(Math.max(1, Math.floor(remaining / 1000))),
-            "--header",
-            `Idempotency-Key: ${pending.key}`,
-            "--json",
-            JSON.stringify(pending.body),
-            "--output",
-            output,
-          ],
-          { timeout: remaining, maxBuffer: 1024 * 1024, signal: options.signal },
-        );
-      } catch {
-        throw new Error(
-          "Tempo payment did not return cleanly. Submission remains pending; run again to reconcile, never delete its state to retry.",
-        );
-      }
+      const timeout = Math.min(authorizedUntil, pending.offer.expiresAt) - Date.now();
+      if (timeout <= 0) throw new Error("Tempo grant or quote expired.");
+      const url = new URL("/api/refuel", api);
+      const init = {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": pending.key },
+        body: JSON.stringify(pending.body),
+        redirect: "error",
+        signal: AbortSignal.timeout(timeout),
+      };
+      const response = await fetch(url, init);
+      if (response.status !== 402)
+        throw new Error("Order changed before payment; reconcile the saved order.");
+      const credential = await wallet.credential(pending, response, approvedKey);
+      await atomicWrite(join(directory, `${pending.key}.credential.json`), { credential });
+      options.signal?.throwIfAborted();
+      if (Date.now() >= Math.min(authorizedUntil, pending.offer.expiresAt))
+        throw new Error("Tempo grant or quote expired before submission.");
+      const paid = await fetch(url, {
+        ...init,
+        headers: { ...init.headers, Authorization: credential },
+      });
+      await atomicWrite(join(directory, `${pending.key}.response.json`), await paid.json());
+      if (![200, 202].includes(paid.status))
+        throw new Error("Payment outcome unresolved; reconcile the saved order.");
     },
   };
 }
