@@ -8,15 +8,17 @@ small services for getting funds where they need to be. gas refill first.
 
 ## What is glue?
 
-Glue adds small, ready-to-run services to Tempo. Tempo owns the wallet and authorization; Glue handles the jobs. Today it watches a wallet's gas balance and refills it through [Glue's MPP API](https://glue.figtracer.com/llms.txt), using your existing Tempo Wallet.
+Glue adds small services agents can enable around Tempo. Tempo owns the wallet, passkey approval and spending authority. Glue handles the jobs.
 
-Base, Ethereum, Arbitrum and Optimism are supported. Pay with pathUSD or USDC.e. More services can follow as we learn what is useful and Tempo brings routes in-house.
+The first service watches a wallet's native gas balance. Below your threshold, it pays through [Glue's MPP API](https://glue.figtracer.com/llms.txt), tracks delivery and checks again later. It runs locally, even after you close the terminal.
 
-This is an early prototype, not an official Tempo feature. Your Tempo passkey approves a dedicated key with a token limit and expiry. Glue reads that grant and handles balance checks, routing and delivery.
+Pay from Tempo mainnet with pathUSD or USDC.e. The CLI supports native ETH on Base, Ethereum, Arbitrum and Optimism. The website also offers one-off refills and Sepolia routes.
+
+This is an early prototype, not an official Tempo feature. More services can follow as we learn what is useful and Tempo brings routes in-house.
 
 ## Getting started
 
-Node >=22.13 and a [Tempo Wallet](https://wallet.tempo.xyz/) are required. Glue uses Tempo’s official Accounts SDK.
+You need Node >=22.13, a [Tempo Wallet](https://wallet.tempo.xyz/), and macOS or Linux with a working user scheduler.
 
 ```sh
 git clone https://github.com/figtracer/glue.git
@@ -33,28 +35,29 @@ glue init --policy .glue/base.local.json \
 glue run --policy .glue/base.local.json
 ```
 
-Replace the addresses. `--duration 30m` requests a 30-minute Tempo key when you authorize. The amounts are examples; provider minimums and gas costs vary. This previews a quote. Nothing is paid or scheduled on install.
+Replace the addresses. This creates the job and checks its balance or previews a quote without paying. The amounts are examples; provider minimums and gas costs vary.
 
-Preview the key allowance, then install the local gas service. Tempo Wallet opens for your passkey approval:
+Install the service when you are ready to enable refills:
 
 ```sh
-glue authorize --policy .glue/base.local.json
 glue install gas --policy .glue/base.local.json --accept-network-fees --approve
-glue status
-glue logs gas
 ```
 
-The service checks once a minute by default, including after you close the terminal. It uses launchd on macOS or a systemd user timer on Linux. One `gas` service is supported. Your user session and network must be available.
+Tempo Wallet opens for your passkey approval. This example requests one 30-minute key with a **0.26 token allowance**: up to 0.25 for refills, plus 0.01 of network-fee headroom. The duration starts when approval is requested. Tempo owns the expiry and combined spending limit; there is no second Glue deadline.
 
-```sh
-glue stop gas
-glue start gas
-glue uninstall gas
-```
+Once approved, Glue checks every 60 seconds by default through launchd on macOS or a systemd user timer on Linux. One `gas` service is supported. The computer must be awake, online and running your user scheduler.
 
-Stopping or uninstalling preserves the policy, grant and payment journal. Start reuses existing authority; it never renews it. For a foreground worker, use `glue run --policy FILE --execute --accept-network-fees --watch` instead of installing.
+| Command              | What it does                                            |
+| -------------------- | ------------------------------------------------------- |
+| `glue status`        | Show the installed job, latest outcome and Tempo grant  |
+| `glue logs gas`      | Read the latest 100 events                              |
+| `glue stop gas`      | Stop local scheduling                                   |
+| `glue start gas`     | Resume the same job with its existing authority         |
+| `glue uninstall gas` | Remove scheduling; keep the grant, journal and receipts |
 
-`maxSpend` caps MPP token charges. `feeReserve` adds network-fee headroom to the Tempo grant: this example approves 0.26 total, with at most 0.25 used for refills. Tempo enforces the combined token limit; the reserve is not a fee quote. Keep the policy and state: deleting them can reset the budget. Read the [operating guide](docs/operations.md) before leaving a worker running.
+Expiry or an exhausted budget stops new payments. Starting or reinstalling does not renew authority or reset spending. The timer can remain installed while reporting that the job cannot pay. See [running and renewing a job](docs/operations.md).
+
+For a foreground worker, use `glue run --policy FILE --execute --accept-network-fees --watch` instead of installing a service.
 
 ## Development
 
@@ -63,4 +66,4 @@ npm ci --ignore-scripts
 npm run ci
 ```
 
-CI checks formatting, lint, syntax and tests on Linux and macOS, including the minimum Node version. Tests use local mocks, never a funded wallet. See [contributing](CONTRIBUTING.md), [project layout](docs/README.md).
+CI checks formatting, lint, syntax and tests on Linux and macOS, including the minimum Node version. Tests use local mocks, never a funded wallet. See [contributing](CONTRIBUTING.md) and the [project layout](docs/README.md).
