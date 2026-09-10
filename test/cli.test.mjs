@@ -74,7 +74,7 @@ test("actual CLI previews, pays through child CLI, resumes delivery and obeys bu
   const api = `http://127.0.0.1:${server.address().port}`;
   await writeFile(
     fake,
-    `#!/usr/bin/env node\nconst args=process.argv.slice(2);\nif(args[0]==='wallet'){console.log(JSON.stringify({wallet:'${sender}'}));}else{\nconst option=k=>args[args.indexOf(k)+1];\nif(option('--max-spend')!=='0.05'||option('--payment-intent')!=='charge'||option('--retries')!=='0')process.exit(9);\nconst response=await fetch(args[1],{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':option('--header').split(': ')[1],Authorization:'test'},body:option('--json')});\nconst {writeFile}=await import('node:fs/promises');await writeFile(option('--output'),await response.text());}\n`,
+    `#!/usr/bin/env node\nconst args=process.argv.slice(2);\nif(args[0]==='wallet'){if(args[1]==='keys'){if(args[3]!=='0x3333333333333333333333333333333333333333'||args[args.indexOf('--limit')+1]!=='0.050000')process.exit(8);}else console.log(JSON.stringify({ready:true,wallet:'${sender}',key:{address:'0x3333333333333333333333333333333333333333',wallet_address:'${sender}',chain_id:4217,status:'ready',expires_at:'${config.expiresAt}',spending_limits:[{token:'0x20c0000000000000000000000000000000000000',limit:'0.05',unlimited:false,period_seconds:null}]}}));}else{\nconst option=k=>args[args.indexOf(k)+1];\nif(option('--max-spend')!=='0.05'||option('--payment-intent')!=='charge'||option('--retries')!=='0')process.exit(9);\nconst response=await fetch(args[1],{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':option('--header').split(': ')[1],Authorization:'test'},body:option('--json')});\nconst {writeFile}=await import('node:fs/promises');await writeFile(option('--output'),await response.text());}\n`,
     { mode: 0o700 },
   );
   const args = [
@@ -95,6 +95,12 @@ test("actual CLI previews, pays through child CLI, resumes delivery and obeys bu
   assert.equal(payments, 0);
   await assert.rejects(exec(process.execPath, [cli, ...args, "--execute"]), /accept-network-fees/);
   assert.equal(payments, 0);
+  await assert.rejects(
+    exec(process.execPath, [cli, ...args, "--execute", "--accept-network-fees"]),
+    /glue authorize/,
+  );
+  const approval = await exec(process.execPath, [cli, "authorize", ...args.slice(1), "--approve"]);
+  assert.match(approval.stdout, /"status":"authorized"/);
   const submitted = await exec(process.execPath, [
     cli,
     ...args,

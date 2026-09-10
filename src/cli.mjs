@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
+import { authorize } from "./authorization.mjs";
 import { validate, initialState, tick } from "./worker.mjs";
 import { createIO, lock, loadState, atomicWrite } from "./io.mjs";
 
@@ -13,6 +14,7 @@ const help = `glue — bounded gas refills through Glue + Tempo Wallet
 init --policy FILE --sender ADDRESS --recipient ADDRESS --chain base
      --token pathusd --below-eth 0.00002 --amount 0.25
      --min-receive-eth 0.00001 --max-spend 1 --expires-at UTC_TIMESTAMP
+authorize --policy FILE [--approve]
 run  --policy FILE [--execute --accept-network-fees] [--watch]
 status --policy FILE
 pause  --policy FILE
@@ -24,7 +26,8 @@ MPP token charges, NOT additional Tempo network fees. Executing requires
 --interval-seconds 60 / --cooldown-seconds 300 are init options.
 --rpc URL / --api URL / --tempo PATH / --state-dir DIR are runtime options.
 Use one persistent state directory; deleting/copying it can reset budgets.
-No biometric/VK integration, daemon installation or key creation in v0.
+authorize previews a shared-key allowance update; --approve opens Tempo passkey approval.
+No VK, daemon installation or private-key handling. Key expiry remains managed by Tempo.
 `;
 
 async function main() {
@@ -49,7 +52,7 @@ async function main() {
         "tempo",
         "state-dir",
       ].map((key) => [key, { type: "string" }]),
-      ...["execute", "accept-network-fees", "watch", "help"].map((key) => [
+      ...["execute", "accept-network-fees", "watch", "approve", "help"].map((key) => [
         key,
         { type: "boolean" },
       ]),
@@ -62,7 +65,7 @@ async function main() {
   }
   if (
     positionals.length !== 1 ||
-    !["init", "run", "status", "pause"].includes(command) ||
+    !["init", "authorize", "run", "status", "pause"].includes(command) ||
     !v.policy
   )
     throw new Error(help);
@@ -119,7 +122,13 @@ async function main() {
       console.log("Paused new refills. Run again to reconcile any existing payment.");
       return;
     }
-    const io = createIO(config, directory, v);
+    const io = createIO(config, directory, { ...v, signal: controller.signal });
+    if (command === "authorize") {
+      console.log(
+        JSON.stringify(await authorize(config, state, io, { approve: Boolean(v.approve) })),
+      );
+      return;
+    }
     console.log(
       JSON.stringify({
         mode: v.execute ? "execute" : "quote-only",

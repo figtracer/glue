@@ -219,12 +219,12 @@ export async function tick(config, state, io, { execute = false } = {}) {
       minimumEth: offer.minimumEth,
       order: state.pending.key,
     };
-  await io.verifyWallet();
+  const authorizedUntil = (await io.verifyWallet()) ?? Date.parse(config.expiresAt);
   // Recheck time and live balance after quote/wallet IO, immediately before charging.
-  if (io.now() >= Date.parse(config.expiresAt) || io.now() >= offer.expiresAt)
+  if (io.now() >= Math.min(authorizedUntil, Date.parse(config.expiresAt), offer.expiresAt))
     return { status: "expired" };
   if ((await io.balance()) >= units(config.belowEth, 18)) return { status: "funded" };
-  if (io.now() >= Date.parse(config.expiresAt) || io.now() >= offer.expiresAt)
+  if (io.now() >= Math.min(authorizedUntil, Date.parse(config.expiresAt), offer.expiresAt))
     return { status: "expired" };
   state.pending.phase = "submitting";
   state.pending.submittedAt = new Date(io.now()).toISOString();

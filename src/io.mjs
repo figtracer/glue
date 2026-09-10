@@ -1,8 +1,9 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { checkAuthorization } from "./authorization.mjs";
 import { CHAINS, TOKENS } from "./worker.mjs";
 
 const exec = promisify(execFile);
@@ -94,7 +95,64 @@ export function createIO(config, directory, options = {}) {
       throw new Error(`RPC failed for ${method}.`);
     return BigInt(reply.body.result);
   }
+  let authorizedUntil = 0;
+  async function wallet() {
+    const { stdout } = await exec(
+      tempo,
+      ["wallet", "whoami", "--network", "tempo", "--format", "json"],
+      {
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+        signal: options.signal,
+      },
+    );
+    return JSON.parse(stdout);
+  }
+  async function verifyWallet() {
+    const state = await loadState(directory);
+    if (state?.authorization?.phase !== "active")
+      throw new Error("Run glue authorize --policy FILE --approve before executing refills.");
+    authorizedUntil = checkAuthorization(config, state?.authorization, await wallet(), Date.now());
+    return authorizedUntil;
+  }
   return {
+    wallet,
+    describe: (value) => console.log(JSON.stringify(value)),
+    async approveKey(key, token, limit) {
+      await new Promise((done, reject) => {
+        const child = spawn(
+          tempo,
+          [
+            "wallet",
+            "keys",
+            "update",
+            key,
+            "--network",
+            "tempo",
+            "--token",
+            token,
+            "--limit",
+            limit,
+          ],
+          {
+            stdio: "inherit",
+            signal: options.signal,
+            timeout: 16 * 60 * 1000,
+          },
+        );
+        child.once("error", reject);
+        child.once("exit", (code) =>
+          code === 0
+            ? done()
+            : reject(
+                new Error(
+                  "Tempo approval did not complete. Outcome remains unresolved; no automatic retry.",
+                ),
+              ),
+        );
+      });
+    },
+    verifyWallet,
     now: () => Date.now(),
     save: (state) => atomicWrite(join(directory, "state.json"), state),
     async balance() {
@@ -117,19 +175,12 @@ export function createIO(config, directory, options = {}) {
         throw new Error(`Receipt unavailable (HTTP ${response.status}).`);
       return response.body;
     },
-    async verifyWallet() {
-      const { stdout } = await exec(tempo, ["wallet", "whoami", "--format", "json"], {
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-      });
-      const result = JSON.parse(stdout);
-      const wallet = result.wallet ?? result.data?.wallet;
-      if (typeof wallet !== "string" || wallet.toLowerCase() !== config.sender.toLowerCase())
-        throw new Error("Tempo Wallet payer does not match the approved policy.");
-    },
     async pay(pending) {
+      await verifyWallet();
+      options.signal?.throwIfAborted();
       const remaining =
-        Math.min(Date.parse(config.expiresAt), pending.offer.expiresAt) - Date.now();
+        Math.min(authorizedUntil, Date.parse(config.expiresAt), pending.offer.expiresAt) -
+        Date.now();
       if (remaining <= 0)
         throw new Error("Approval or offer expired before payment; inspect pending state.");
       const output = join(directory, `${pending.key}.response.json`);
@@ -160,7 +211,7 @@ export function createIO(config, directory, options = {}) {
             "--output",
             output,
           ],
-          { timeout: remaining, maxBuffer: 1024 * 1024 },
+          { timeout: remaining, maxBuffer: 1024 * 1024, signal: options.signal },
         );
       } catch {
         throw new Error(

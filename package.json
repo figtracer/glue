@@ -9,15 +9,16 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/cli.mjs && node --check src/worker.mjs && node --check src/io.mjs",
+    "check": "node --check src/cli.mjs && node --check src/worker.mjs && node --check src/io.mjs && node --check src/authorization.mjs",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
-    "lint": "oxlint --deny-warnings src test",
+    "lint": "oxlint --deny-warnings src test scripts",
+    "deps:check": "node scripts/check-dependency-age.mjs",
     "ci": "npm run fmt:check && npm run lint && npm run check && npm test"
   },
   "devDependencies": {
-    "oxfmt": "^0.61.0",
-    "oxlint": "^1.82.0"
+    "oxfmt": "^0.66.0",
+    "oxlint": "~1.81.0"
   },
   "engines": {
     "node": ">=22.13.0"

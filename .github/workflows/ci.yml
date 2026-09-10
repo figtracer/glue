@@ -14,7 +14,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependencies:
+    name: Dependency soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.13.0"
+      - name: Enforce seven-day dependency soak
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-dependency-age.mjs
+
   checks:
+    needs: [dependencies]
     name: Checks (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
@@ -39,11 +58,12 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [checks]
+    needs: [dependencies, checks]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Require every matrix job to pass
         env:
           RESULT: ${{ needs.checks.result }}
-        run: test "$RESULT" = success
+          DEPENDENCIES: ${{ needs.dependencies.result }}
+        run: test "$RESULT" = success && test "$DEPENDENCIES" = success
