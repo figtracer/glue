@@ -1,22 +1,22 @@
-# glue
+# <img src="docs/assets/glue.png" width="28" height="28" alt=""> glue
 
 [![CI](https://github.com/figtracer/glue/actions/workflows/ci.yml/badge.svg)](https://github.com/figtracer/glue/actions/workflows/ci.yml)
 
 small services for getting funds where they need to be. gas refill first.
 
-[getting started](#getting-started) · [operating guide](docs/operations.md) · [contributing](CONTRIBUTING.md) · [ideas](docs/ideas.md)
+[website](https://glue.figtracer.com) · [getting started](#getting-started) · [operating guide](docs/operations.md) · [contributing](CONTRIBUTING.md) · [ideas](docs/ideas.md)
 
 ## What is glue?
 
-Glue is a playground for agent services around funding and keeping wallets usable. Today it watches a wallet's gas balance and refills it through [Glue's MPP API](https://glue.figtracer.com/llms.txt), using your existing Tempo Wallet.
+Glue adds small, ready-to-run services to Tempo. Tempo owns the wallet and authorization; Glue handles the jobs. Today it watches a wallet's gas balance and refills it through [Glue's MPP API](https://glue.figtracer.com/llms.txt), using your existing Tempo Wallet.
 
 Base, Ethereum, Arbitrum and Optimism are supported. Pay with pathUSD or USDC.e. More services can follow as we learn what is useful and Tempo brings routes in-house.
 
-This is an early prototype, not an official Tempo feature. Budgets and expiry are enforced locally. VK approval and scoped-key enrollment are not wired yet.
+This is an early prototype, not an official Tempo feature. Your Tempo passkey approves a dedicated key with a token limit and expiry. Glue reads that grant and handles balance checks, routing and delivery.
 
 ## Getting started
 
-Node >=22.13 and a configured [Tempo Wallet](https://tempo.xyz/) are required. No runtime dependencies.
+Node >=22.13 and a [Tempo Wallet](https://wallet.tempo.xyz/) are required. Glue uses Tempo’s official Accounts SDK.
 
 ```sh
 git clone https://github.com/figtracer/glue.git
@@ -28,16 +28,18 @@ glue init --policy .glue/base.local.json \
   --sender YOUR_TEMPO_WALLET --recipient YOUR_BASE_WALLET \
   --chain base --token pathusd \
   --below-eth 0.00002 --amount 0.05 --min-receive-eth 0.000001 \
-  --max-spend 0.25 --expires-at YOUR_FUTURE_UTC_TIMESTAMP
+  --max-spend 0.25 --duration 30m
 
 glue run --policy .glue/base.local.json
 ```
 
-Replace the addresses and timestamp. Use a future UTC timestamp ending in `Z`. The amounts are examples; provider minimums and gas costs vary. This previews a quote. Nothing is paid or scheduled on install.
+Replace the addresses. `--duration 30m` requests a 30-minute Tempo key when you authorize. The amounts are examples; provider minimums and gas costs vary. This previews a quote. Nothing is paid or scheduled on install.
 
-To enable refills:
+Preview the key allowance, then approve it in Tempo Wallet with your passkey:
 
 ```sh
+glue authorize --policy .glue/base.local.json
+glue authorize --policy .glue/base.local.json --approve
 glue run --policy .glue/base.local.json --execute --accept-network-fees --watch
 ```
 
@@ -50,4 +52,4 @@ npm ci --ignore-scripts
 npm run ci
 ```
 
-CI checks formatting, lint, syntax and tests on Linux and macOS, including the minimum Node version. Tests use local mocks, never a funded wallet. See [contributing](CONTRIBUTING.md), [project layout](docs/README.md) and the [live workflow record](docs/validation.md).
+CI checks formatting, lint, syntax and tests on Linux and macOS, including the minimum Node version. Tests use local mocks, never a funded wallet. See [contributing](CONTRIBUTING.md), [project layout](docs/README.md).

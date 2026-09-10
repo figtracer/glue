@@ -4,11 +4,13 @@
 
 ## Budget and authority
 
-- `maxSpend` caps cumulative **MPP token charges**, not additional Tempo network fees. `--accept-network-fees` acknowledges that distinction. The prototype does not promise an all-in fee cap.
-- `expiresAt` stops initiating payments; paid orders continue through reconciliation. A process timeout cannot revoke an already-signed transaction. Use a suitably limited/expiring Tempo Wallet key too.
-- `--execute` is a local opt-in. The worker uses your existing wallet key; it does not create a scoped key, request Touch ID/VK approval, or offer a tamper-resistant approval system. Local budgets depend on preserving the state and running this code.
-- Glue is the trusted quote/fulfillment provider. MPP payees can vary by order. General signer-enforced recurring mandates and VK integration are future work, not a property of this CLI.
-- Budget is reserved durably before payment. Unknown or failed payments never trigger another payment automatically. Refunds retain their budget reservation and require attention.
+`glue authorize --policy FILE --approve` opens Tempo Wallet's passkey flow for a dedicated key. The requested duration becomes the key's native expiry. Glue reads the signed grant before publication and queries the Tempo keychain once published. There is no separate Glue deadline. `glue status` shows the grant expiry and remaining time.
+
+The key is limited to the selected token and its transfer methods. The SDK stores it privately in the job's state directory, separately from your usual Tempo CLI wallet. MPP signing explicitly selects this key. Glue never asks for your passkey or copies your existing wallet key.
+
+`maxSpend` requests a finite Tempo token allowance and bounds Glue's cumulative MPP charges. Network fees are additional; `--accept-network-fees` acknowledges this. Destination, threshold and route checks remain Glue's job logic. Do not treat those fields as onchain permissions.
+
+Budget is reserved durably before signing. Unknown submissions never initiate another payment. Paid orders continue through reconciliation after key expiry or revocation. Pausing Glue stops new jobs; revoke its dedicated key in Tempo Wallet to remove signing authority.
 
 ## State and recovery
 
@@ -16,8 +18,14 @@ State defaults to `~/.local/state/glue/<policy-path-id>/`. It is tied to the pol
 
 One worker holds a filesystem lock. After a hard crash, inspect the PID in `run.lock`; only after confirming it exited, remove that lock file and resume with the original policy. Never remove `state.json` to retry a payment. Files are private and state writes are synced before payment submission.
 
-For ambiguous outcomes, the worker asks Glue about the exact saved order. If Glue still reports unpaid, it stops with `payment_unknown`; inspect Tempo Wallet and the saved order. It cannot recover a client credential lost before Glue received it. This conservative stop sacrifices availability to avoid paying twice.
+For ambiguous outcomes, the worker asks Glue about the exact saved order. If Glue still reports unpaid, it stops with `payment_unknown`; inspect Tempo Wallet and the saved order. A signed credential is saved before submission; this version still requires manual inspection when delivery is uncertain. This conservative stop sacrifices availability to avoid paying twice.
 
-Useful overrides: `--rpc URL`, `--api URL`, `--tempo /path/to/tempo`, `--state-dir DIR`. Use overrides consistently. HTTPS is required except for loopback integration tests; redirects are rejected. RPC chain IDs are checked. Provider/RPC outages stop the current run with an error; an external scheduler can retry the same command/state. The default cooldown is five minutes after delivery to avoid rapid repeated refills. Polling/cooldown can be configured at init, with a 30-second minimum.
+Useful overrides: `--rpc URL`, `--api URL`, `--state-dir DIR`. Use overrides consistently. HTTPS is required except for loopback integration tests; redirects are rejected. RPC chain IDs are checked. Provider/RPC outages stop the current run with an error; an external scheduler can retry the same command/state. The default cooldown is five minutes after delivery to avoid rapid repeated refills. Polling/cooldown can be configured at init, with a 30-second minimum.
 
 No background task is installed. For cron, invoke the one-shot `run` with the same policy/state; do not also run `--watch`. If a laptop sleeps, the worker evaluates the current balance when it resumes; it does not replay missed refills.
+
+## Approval recovery
+
+`authorize` without `--approve` previews a new grant. Once an attempt exists, repeating the command only looks for its saved signed grant; it never renews a key or replenishes an allowance. Interrupted approvals without a saved grant remain unresolved. Keep the state and inspect Tempo Wallet instead of deleting files to retry.
+
+Version 1 jobs retain their original state and can reconcile existing payments. New grants use version 2 jobs with `--duration`; a new job is a new allowance, so stop the previous worker first.

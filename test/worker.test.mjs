@@ -26,7 +26,7 @@ function fixture(c = config) {
       calls.saved.push(structuredClone(s));
     },
     balance: async () => 0n,
-    verifyWallet: async () => {},
+    verifyWallet: async () => now + 86400000,
     order: async (p) => {
       calls.quote++;
       return {
@@ -150,6 +150,7 @@ test("rechecks expiry and balance after quote", async () => {
     io.verifyWallet = async () => {
       if (mode === "expiry") advance(86_400_001);
       else io.balance = async () => units(config.belowEth, 18);
+      return now + 86400000;
     };
     assert.equal(
       (await tick(config, state, io, { execute: true })).status,
