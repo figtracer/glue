@@ -2,7 +2,7 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { checkGrant } from "./authorization.mjs";
 import { createWallet } from "./wallet.mjs";
-import { CHAINS } from "./worker.mjs";
+import { CHAINS, units } from "./worker.mjs";
 
 export const DEFAULT_RPC = {
   base: "https://mainnet.base.org",
@@ -103,12 +103,12 @@ export function createIO(
     if (state?.authorization?.phase !== "active")
       throw new Error("Run glue authorize --policy FILE --approve first.");
     approvedKey = state.authorization.key;
-    authorizedUntil = checkGrant(
-      config,
-      state.authorization,
-      await wallet.authority(approvedKey),
-      Date.now(),
-    );
+    const grant = await wallet.authority(approvedKey);
+    authorizedUntil = checkGrant(config, state.authorization, grant, Date.now());
+    if (BigInt(grant.limit) <= units(config.amount, 6))
+      throw new Error(
+        "Tempo allowance cannot cover the refill plus network fees. No payment attempted.",
+      );
     return authorizedUntil;
   }
   return {

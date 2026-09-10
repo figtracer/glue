@@ -13,14 +13,15 @@ const help = `glue — bounded gas refills through Glue + Tempo Wallet
 
 init --policy FILE --sender ADDRESS --recipient ADDRESS --chain base
      --token pathusd --below-eth 0.00002 --amount 0.25
-     --min-receive-eth 0.00001 --max-spend 1 --duration 30m
+     --min-receive-eth 0.00001 --max-spend 1 --fee-reserve 0.01 --duration 30m
 authorize --policy FILE [--approve]
 run  --policy FILE [--execute --accept-network-fees] [--watch]
 status --policy FILE
 pause  --policy FILE
 
 run is quote-only unless --execute is supplied. max-spend caps cumulative
-MPP token charges, NOT additional Tempo network fees. Executing requires
+MPP token charges. --fee-reserve adds headroom to the native Tempo allowance
+for network fees; Tempo caps their combined spend. Executing requires
 --accept-network-fees and an already authorized Tempo Wallet.
 
 --interval-seconds 60 / --cooldown-seconds 300 are init options.
@@ -44,6 +45,7 @@ async function main() {
         "amount",
         "min-receive-eth",
         "max-spend",
+        "fee-reserve",
         "duration",
         "interval-seconds",
         "cooldown-seconds",
@@ -70,6 +72,8 @@ async function main() {
     throw new Error(help);
   const path = command === "init" ? resolve(v.policy) : await realpath(resolve(v.policy));
   if (command === "init") {
+    if (!v["fee-reserve"])
+      throw new Error("Choose an explicit --fee-reserve for Tempo network fees.");
     const config = validate({
       version: 2,
       sender: v.sender,
@@ -80,6 +84,7 @@ async function main() {
       amount: v.amount,
       minReceiveEth: v["min-receive-eth"],
       maxSpend: v["max-spend"],
+      feeReserve: v["fee-reserve"],
       durationSeconds: (() => {
         const match = /^(\d+)(s|m|h)$/.exec(v.duration ?? "");
         if (!match) throw new Error("Use --duration 30m (s, m or h).");

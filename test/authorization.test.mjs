@@ -13,6 +13,7 @@ const config = {
   amount: "0.05",
   minReceiveEth: "0.000001",
   maxSpend: "0.15",
+  feeReserve: "0.01",
   durationSeconds: 1800,
   intervalSeconds: 30,
   cooldownSeconds: 30,
@@ -52,11 +53,15 @@ function fixture() {
 test("dedicated grant requests one Tempo expiry and remaining allowance; repeats do not renew", async () => {
   const f = fixture();
   f.state.spent = "50000";
-  assert.equal((await authorize(config, f.state, f.io)).durationSeconds, 1800);
+  const preview = await authorize(config, f.state, f.io);
+  assert.equal(preview.durationSeconds, 1800);
+  assert.equal(preview.amount, "0.11");
+  assert.equal(preview.payments, "0.1");
+  assert.equal(preview.feeReserve, "0.01");
   assert.equal(f.state.authorization, undefined);
   await authorize(config, f.state, f.io, { approve: true });
   assert.equal(f.grant().expiry, now / 1000 + 1800);
-  assert.equal(f.grant().limit, "100000");
+  assert.equal(f.grant().limit, "110000");
   assert.equal(f.state.authorization.requestExpiry, undefined);
   assert.equal(f.state.authorization.expiresAt, undefined);
   await authorize(config, f.state, f.io, { approve: true });
@@ -129,5 +134,33 @@ test("pending payments, exhausted budgets and failed persistence never open appr
     throw Error("disk full");
   };
   await assert.rejects(authorize(config, f.state, f.io, { approve: true }), /disk full/);
+  assert.equal(f.calls(), 0);
+});
+
+test("existing grants keep their allowance; fresh grants require explicit fee headroom", async () => {
+  const legacy = { ...config };
+  delete legacy.feeReserve;
+  const state = initialState(legacy);
+  const f = fixture();
+  await assert.rejects(authorize(legacy, state, f.io, { approve: true }), /fee-reserve/);
+  assert.equal(state.authorization, undefined);
+  assert.equal(f.calls(), 0);
+  state.authorization = {
+    phase: "active",
+    policyHash: policyHash(legacy),
+    limit: "150000",
+    key: "0x3333333333333333333333333333333333333333",
+  };
+  f.io.authority = async () => ({
+    key: state.authorization.key,
+    wallet: legacy.sender,
+    chainId: 4217,
+    limited: true,
+    limit: "148145",
+    expiry: now / 1000 + 60,
+    source: "tempo-chain",
+  });
+  await authorize(legacy, state, f.io, { approve: true });
+  assert.equal(state.authorization.limit, "150000");
   assert.equal(f.calls(), 0);
 });
