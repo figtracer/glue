@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createIO, atomicWrite } from "../src/io.mjs";
 import { initialState, policyHash, tick, TOKENS } from "../src/worker.mjs";
-import { checkChallenge } from "../src/wallet.mjs";
+import { Challenge } from "mppx";
+import { checkChallenge, createWallet } from "../src/wallet.mjs";
 const config = {
   version: 2,
   sender: "0x1111111111111111111111111111111111111111",
@@ -116,4 +117,33 @@ test("MPP challenge rejects extra recipients, wrong token, amount and source cha
         request: { ...challenge.request, ...patch },
       }),
     );
+});
+
+test("installed MPP SDK prepares and rejects a mismatched challenge before signing", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "glue-sdk-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const challenge = Challenge.from({
+    id: "test",
+    realm: "glue.example",
+    method: "tempo",
+    intent: "charge",
+    request: {
+      amount: "100000",
+      currency: TOKENS.pathusd,
+      recipient: config.sender,
+      methodDetails: { chainId: 4217 },
+    },
+  });
+  const response = new Response(null, {
+    status: 402,
+    headers: { "WWW-Authenticate": Challenge.serialize(challenge) },
+  });
+  await assert.rejects(
+    createWallet(config, dir).credential(
+      { offer: { paymentRecipient: config.sender } },
+      response,
+      config.sender,
+    ),
+    /MPP payment challenge differs/,
+  );
 });
