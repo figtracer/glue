@@ -1,0 +1,4 @@
+node_modules/
+.glue/
+*.local.json
+.DS_Store
