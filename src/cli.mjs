@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { readFile, writeFile, mkdir, realpath } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { authorize } from "./authorization.mjs";
 import { validate, initialState, tick } from "./worker.mjs";
-import { createIO, lock, loadState, atomicWrite } from "./io.mjs";
+import { createIO, lock, loadState, atomicWrite, stateDirectory } from "./io.mjs";
+
+import { serviceCommand, serviceTick } from "./service.mjs";
 
 const help = `glue — bounded gas refills through Glue + Tempo Wallet
 
@@ -16,6 +16,9 @@ init --policy FILE --sender ADDRESS --recipient ADDRESS --chain base
      --min-receive-eth 0.00001 --max-spend 1 --fee-reserve 0.01 --duration 30m
 authorize --policy FILE [--approve]
 run  --policy FILE [--execute --accept-network-fees] [--watch]
+install gas --policy FILE --accept-network-fees [--approve]
+start gas / stop gas / uninstall gas
+status [gas] / logs gas
 status --policy FILE
 pause  --policy FILE
 
@@ -28,7 +31,7 @@ for network fees; Tempo caps their combined spend. Executing requires
 --rpc URL / --api URL / --state-dir DIR are runtime options.
 Use one persistent state directory; deleting/copying it can reset budgets.
 authorize previews a dedicated key grant; --approve opens Tempo passkey approval.
-Tempo owns the grant expiry and token limit. No VK or daemon installation.
+Tempo owns the grant expiry and token limit. install uses a local user scheduler.
 `;
 
 async function main() {
@@ -52,6 +55,7 @@ async function main() {
         "rpc",
         "api",
         "state-dir",
+        "service-dir",
       ].map((key) => [key, { type: "string" }]),
       ...["execute", "accept-network-fees", "watch", "approve", "help"].map((key) => [
         key,
@@ -62,6 +66,36 @@ async function main() {
   const [command] = positionals;
   if (v.help || !command) {
     console.log(help);
+    return;
+  }
+  if (command === "service-tick") {
+    if (positionals.length !== 1) throw new Error(help);
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    try {
+      const result = await serviceTick(v["service-dir"], { signal: controller.signal });
+      console.log(JSON.stringify(result));
+      if (["error", "needs_attention", "payment_unknown"].includes(result.status))
+        process.exitCode = 2;
+    } finally {
+      process.removeListener("SIGINT", stop);
+      process.removeListener("SIGTERM", stop);
+    }
+    return;
+  }
+  if (
+    ["install", "start", "stop", "uninstall", "logs"].includes(command) ||
+    (command === "status" && !v.policy)
+  ) {
+    if (
+      (positionals[1] !== "gas" && !(command === "status" && positionals.length === 1)) ||
+      positionals.length > 2
+    )
+      throw new Error(help);
+    const result = await serviceCommand(command, v);
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
   if (
@@ -100,8 +134,7 @@ async function main() {
   }
   const config = validate(JSON.parse(await readFile(path, "utf8")));
   // The canonical policy path owns the state; edits cannot silently create a fresh budget.
-  const id = createHash("sha256").update(path).digest("hex").slice(0, 24);
-  const directory = resolve(v["state-dir"] ?? join(homedir(), ".local/state/glue", id));
+  const directory = stateDirectory(path, v["state-dir"]);
   if (command === "status") {
     const state = await loadState(directory);
     let authority;

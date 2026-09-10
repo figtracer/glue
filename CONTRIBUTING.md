@@ -15,6 +15,14 @@ npm run ci
 
 Keep payment behavior changes covered: wrong quotes, expiry, budget exhaustion, duplicate triggers and restart after submission. Never delete pending state to make a test pass. A live payment test requires an explicit destination and spending budget; record its limits and outcome separately.
 
+Scheduler tests normally mock OS commands. To exercise the real user scheduler with a non-paying, exhausted test job:
+
+```sh
+GLUE_TEST_NATIVE_SERVICE=1 node --test --test-name-pattern='native user scheduler' test/scheduler.test.mjs
+```
+
+This registers a temporary job with a unique name, waits for two invocations of the actual CLI, then removes it. Run it from a macOS login session or a Linux session with a working systemd user manager.
+
 ## Pull requests
 
 Use a short conventional title, such as `fix: preserve pending refill on timeout`. Explain the problem and resulting behavior, with evidence that exercises the changed path. Keep unrelated cleanup separate. Disclose AI assistance and what it contributed. Maintainer branches use `fig/`.

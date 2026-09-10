@@ -2,6 +2,28 @@
 
 `glue run --policy FILE` previews a quote or reconciles an existing payment. Add `--execute --accept-network-fees` to pay, and `--watch` to keep checking. Stop a watcher with Ctrl-C before running `glue pause --policy FILE`. `glue status --policy FILE` shows the saved policy and receipts.
 
+## Local service
+
+Create a policy with `glue init`, then run:
+
+```sh
+glue install gas --policy .glue/base.local.json --accept-network-fees --approve
+glue status
+glue logs gas
+```
+
+Install opens Tempo Wallet only when the job needs its first grant and `--approve` is supplied. Without that flag it previews the grant and installs nothing. An existing grant is reused without another passkey prompt. There is no automatic renewal.
+
+Glue installs one `gas` service for your user account. [launchd](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5) handles macOS; a [systemd user timer](https://github.com/systemd/systemd/blob/main/man/systemd.timer.xml) handles Linux. Each scheduled process runs one check using the existing policy and payment journal, then exits. The interval comes from `intervalSeconds` (60 seconds by default). Missed checks are not replayed. Sleeping or offline computers cannot keep a wallet funded continuously; the next scheduled run checks the current balance. Linux requires a running systemd user manager; Glue does not enable lingering or require root.
+
+`glue stop gas` disables scheduling and stops the scheduled process. `glue start gas` resumes the same installed job. `glue uninstall gas` also removes its scheduler files. These commands preserve the grant, journal, logs and receipts. They do not revoke the Tempo key or stop a separately launched foreground worker. Do not run `--watch` alongside the installed service.
+
+`glue status` reports scheduling, the configured threshold and refill, the last outcome, any job lock, and the native grant expiry and remaining allowance. `glue logs gas` returns the latest 100 compact events. Service metadata and logs live in `~/.local/state/glue/services/gas/`; payment state stays in its original directory. Runtime overrides supplied during installation are saved, so future ticks use the same API, RPC and state directory.
+
+Keep the checkout and Node installation used to install the service available. After moving the checkout or upgrading Node, stop and start the service from the working CLI to refresh the native command. Native files are `~/Library/LaunchAgents/com.figtracer.glue.gas.plist` on macOS and `~/.config/systemd/user/com.figtracer.glue.gas.{service,timer}` on Linux.
+
+Expiry or budget exhaustion prevents further payments. Pending payments still reconcile. To enable a new grant, stop and uninstall the old service, resolve any pending payment, then explicitly create and install a new policy. Reinstalling the same policy never resets its budget. Missing or changed payment state is an error, not permission to start over.
+
 ## Budget and authority
 
 `glue authorize --policy FILE --approve` opens Tempo Wallet's passkey flow for a dedicated key. The requested duration becomes the key's native expiry. Glue reads the signed grant before publication and queries the Tempo keychain once published. There is no separate Glue deadline. `glue status` shows the grant expiry and remaining time.
@@ -22,7 +44,7 @@ For ambiguous outcomes, the worker asks Glue about the exact saved order. If Glu
 
 Useful overrides: `--rpc URL`, `--api URL`, `--state-dir DIR`. Use overrides consistently. HTTPS is required except for loopback integration tests; redirects are rejected. RPC chain IDs are checked. Provider/RPC outages stop the current run with an error; an external scheduler can retry the same command/state. The default cooldown is five minutes after delivery to avoid rapid repeated refills. Polling/cooldown can be configured at init, with a 30-second minimum.
 
-No background task is installed. For cron, invoke the one-shot `run` with the same policy/state; do not also run `--watch`. If a laptop sleeps, the worker evaluates the current balance when it resumes; it does not replay missed refills.
+`run` alone installs no background task. To use an external scheduler instead of `glue install`, invoke the one-shot `run` with the same policy/state. Use only one scheduler for a job.
 
 ## Approval recovery
 
