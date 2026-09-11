@@ -14,11 +14,23 @@ The first service watches a wallet's native gas balance. Below your threshold, i
 
 Pay from Tempo mainnet with pathUSD or USDC.e. The CLI supports native ETH on Base, Ethereum, Arbitrum and Optimism. The website also offers one-off refills and Sepolia routes.
 
-This is an early prototype, not an official Tempo feature. More services can follow as we learn what is useful and Tempo brings routes in-house.
+No Glue subscription, platform fee or markup. You pay network and upstream provider costs.
+
+Keep your agent and your Tempo wallet. Glue uses the local scheduler, ordinary code and a small payment journal; no model runs to check a balance. No dashboard, database server or container is needed.
+
+This is an early prototype, not an official Tempo feature. More services can follow as we learn what is useful.
 
 ## Services
 
 Pick what you need. Each service has its own setup and usage page.
+
+```sh
+glue services
+glue services gas
+glue services --json
+```
+
+The catalog is bundled with the CLI. Browsing it needs no login and enables nothing.
 
 | Service                                     | What it does                                  | Use it                            |
 | ------------------------------------------- | --------------------------------------------- | --------------------------------- |
@@ -34,8 +46,8 @@ Install the CLI with Node >=22.13:
 ```sh
 git clone https://github.com/figtracer/glue.git
 cd glue
-npm ci --ignore-scripts
-npm link --ignore-scripts
+npm ci --omit=dev --ignore-scripts
+npm link --omit=dev --ignore-scripts
 ```
 
 Then choose a [service](docs/services/README.md). For automatic refills, follow the [gas maintenance setup](docs/services/gas.md#enable): configure your wallet and threshold, approve a bounded Tempo grant, and install the local service. Installing the CLI alone does not enable payments or scheduling.

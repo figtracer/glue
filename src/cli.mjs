@@ -4,13 +4,14 @@ import { resolve, join, dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { authorize } from "./authorization.mjs";
-import { validate, initialState, tick } from "./worker.mjs";
+import { CHAINS, TOKENS, validate, initialState, tick } from "./worker.mjs";
 import { createIO, lock, loadState, atomicWrite, stateDirectory } from "./io.mjs";
 
 import { serviceCommand, serviceTick } from "./service.mjs";
 
-const help = `glue — bounded gas refills through Glue + Tempo Wallet
+const help = `glue — small services for agents using Tempo
 
+services [gas|refuel] [--json]
 init --policy FILE --sender ADDRESS --recipient ADDRESS --chain base
      --token pathusd --below-eth 0.00002 --amount 0.25
      --min-receive-eth 0.00001 --max-spend 1 --fee-reserve 0.01 --duration 30m
@@ -57,7 +58,7 @@ async function main() {
         "state-dir",
         "service-dir",
       ].map((key) => [key, { type: "string" }]),
-      ...["execute", "accept-network-fees", "watch", "approve", "help"].map((key) => [
+      ...["execute", "accept-network-fees", "watch", "approve", "help", "json"].map((key) => [
         key,
         { type: "boolean" },
       ]),
@@ -66,6 +67,50 @@ async function main() {
   const [command] = positionals;
   if (v.help || !command) {
     console.log(help);
+    return;
+  }
+  if (v.json && command !== "services") throw new Error("--json is available for services.");
+  if (command === "services") {
+    const services = [
+      {
+        id: "gas",
+        name: "Gas maintenance",
+        description: "Watch native ETH and refill below your threshold.",
+        runs: "local",
+        chains: Object.keys(CHAINS),
+        tokens: Object.keys(TOKENS),
+        docs: "https://github.com/figtracer/glue/blob/main/docs/services/gas.md",
+        command: "glue install gas --policy FILE --accept-network-fees --approve",
+      },
+      {
+        id: "refuel",
+        name: "On-demand refuel",
+        description: "Get gas now through the website or MPP API, including Sepolia routes.",
+        runs: "web/mpp",
+        tokens: Object.keys(TOKENS),
+        docs: "https://glue.figtracer.com/llms.txt",
+        website: "https://glue.figtracer.com",
+      },
+    ];
+    const selected = positionals[1]
+      ? services.filter((service) => service.id === positionals[1])
+      : services;
+    if (positionals.length > 2 || !selected.length)
+      throw new Error("Use glue services [gas|refuel] [--json].");
+    if (Object.keys(v).some((key) => key !== "json"))
+      throw new Error("services only accepts --json; it does not configure or enable jobs.");
+    if (v.json) console.log(JSON.stringify(selected, null, 2));
+    else {
+      console.log("glue services — pay from Tempo with pathUSD or USDC.e\n");
+      for (const service of selected) {
+        console.log(`${service.id} · ${service.name} · ${service.runs}`);
+        console.log(`  ${service.description}`);
+        console.log(`  ${service.docs}`);
+        if (service.command) console.log(`  ${service.command}`);
+        console.log();
+      }
+      console.log("No Glue fees. Network and provider costs apply. Nothing enabled.");
+    }
     return;
   }
   if (command === "service-tick") {
