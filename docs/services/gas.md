@@ -20,9 +20,9 @@ Create a job, replacing the wallet placeholders:
 ```sh
 glue init --policy .glue/base.local.json \
   --sender YOUR_TEMPO_WALLET --recipient YOUR_BASE_WALLET \
-  --chain base --token pathusd \
+  --chain base \
   --below-eth 0.00002 --amount 0.05 --min-receive-eth 0.000001 \
-  --max-spend 0.25 --fee-reserve 0.01 --duration 30m
+  --max-spend 0.25 --fee-reserve 0.01 --duration 30m --token pathusd
 ```
 
 This example spends 0.05 pathUSD per refill when Base ETH is below 0.00002, with a 0.25 total refill budget. Amounts are examples; provider minimums and gas costs vary.
