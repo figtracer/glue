@@ -1,5 +1,7 @@
 # Docs
 
+Agents using Glue should read [AGENTS.md](../AGENTS.md).
+
 Start with [current services](services/README.md) to pick what to enable. Each service page covers its setup and usage. The [operating guide](operations.md) covers budgets, expiry and recovery. [Ideas](ideas.md) are future candidates.
 
 ## Project layout
