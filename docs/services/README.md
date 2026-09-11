@@ -2,6 +2,10 @@
 
 small things you can use today. pick one, configure it, and go.
 
+Run `glue services` to browse, `glue services gas` for a specific service, or `glue services --json` from an agent. Discovery reads the bundled catalog; it does not connect a wallet or install anything.
+
+No Glue fees. Network and upstream provider costs still apply.
+
 | Service                     | Use it for                                   | Runs through                     | Start here                              |
 | --------------------------- | -------------------------------------------- | -------------------------------- | --------------------------------------- |
 | **Gas maintenance** · `gas` | Keep a wallet ready for its next transaction | Local launchd or systemd service | [Enable gas maintenance](gas.md#enable) |

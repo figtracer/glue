@@ -4,6 +4,8 @@ Use Glue to get gas for a wallet or keep it funded. Act within the user's reques
 
 ## Choose a service
 
+Run `glue services --json` to discover shipped services and their setup instructions. Use `glue services gas --json` for local maintenance. The catalog is read-only and requires no wallet connection.
+
 - **On-demand refuel:** use [llms.txt](https://glue.figtracer.com/llms.txt) for the current MPP instructions. Follow its request and delivery flow.
 - **Gas maintenance:** install the local `gas` service using the [setup guide](docs/services/gas.md). It watches native ETH on Base, Ethereum, Arbitrum or Optimism and refills below a threshold.
 
