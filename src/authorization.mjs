@@ -1,4 +1,3 @@
-import { formatUnits } from "viem";
 import { address, policyHash, units, validateState } from "./worker.mjs";
 
 export function checkGrant(config, approval, grant, now) {
@@ -39,6 +38,7 @@ export async function authorize(config, state, io, { approve = false } = {}) {
       throw new Error(
         "A new Tempo grant requires an explicit --fee-reserve. Keep existing job state.",
       );
+    const { formatUnits } = await import("viem");
     const allowance = remaining + units(config.feeReserve, 6);
     const preview = {
       status: "approval_required",
