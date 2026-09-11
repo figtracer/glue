@@ -1,75 +1,173 @@
 #!/usr/bin/env node
 import { readFile, writeFile, mkdir, realpath } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
-import { parseArgs } from "node:util";
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { parseArgs, promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { authorize } from "./authorization.mjs";
-import { CHAINS, TOKENS, validate, initialState, tick } from "./worker.mjs";
-import { createIO, lock, loadState, atomicWrite, stateDirectory } from "./io.mjs";
+import { CHAINS, TOKENS, address, validate, initialState, tick } from "./worker.mjs";
+import { createIO, inspectJob, lock, loadState, atomicWrite, stateDirectory } from "./io.mjs";
 
 import { serviceCommand, serviceTick } from "./service.mjs";
 
+const runtime = ["rpc", "api", "state-dir"];
+const commands = {
+  services: { usage: "services [gas|refuel] [--json]", flags: ["json"] },
+  init: {
+    usage:
+      "init --policy FILE --recipient ADDRESS --chain CHAIN --token TOKEN\n  --below-eth ETH --amount AMOUNT --min-receive-eth ETH\n  --max-spend AMOUNT --fee-reserve AMOUNT --duration 30m [--sender ADDRESS]",
+    flags: [
+      "policy",
+      "sender",
+      "recipient",
+      "chain",
+      "token",
+      "below-eth",
+      "amount",
+      "min-receive-eth",
+      "max-spend",
+      "fee-reserve",
+      "duration",
+      "interval-seconds",
+      "cooldown-seconds",
+    ],
+  },
+  authorize: {
+    usage: "authorize --policy FILE [--approve]",
+    flags: ["policy", "approve", ...runtime],
+  },
+  run: {
+    usage: "run --policy FILE [--execute --accept-network-fees] [--watch]",
+    flags: ["policy", "execute", "accept-network-fees", "watch", ...runtime],
+  },
+  install: {
+    usage: "install gas --policy FILE --accept-network-fees [--approve]",
+    flags: ["policy", "accept-network-fees", "approve", ...runtime],
+  },
+  start: { usage: "start gas", flags: [] },
+  stop: { usage: "stop gas", flags: [] },
+  uninstall: { usage: "uninstall gas", flags: [] },
+  logs: { usage: "logs gas", flags: [] },
+  status: { usage: "status [gas | --policy FILE] [--json]", flags: ["policy", "json", ...runtime] },
+  pause: { usage: "pause --policy FILE", flags: ["policy", "state-dir"] },
+  "service-tick": { usage: "service-tick [--service-dir DIR]", flags: ["service-dir"] },
+};
 const help = `glue — small services for agents using Tempo
 
-services [gas|refuel] [--json]
-init --policy FILE --sender ADDRESS --recipient ADDRESS --chain base
-     --token pathusd --below-eth 0.00002 --amount 0.25
-     --min-receive-eth 0.00001 --max-spend 1 --fee-reserve 0.01 --duration 30m
-authorize --policy FILE [--approve]
-run  --policy FILE [--execute --accept-network-fees] [--watch]
-install gas --policy FILE --accept-network-fees [--approve]
-start gas / stop gas / uninstall gas
-status [gas] / logs gas
-status --policy FILE
-pause  --policy FILE
+services  Browse services
+init      Configure gas maintenance
+authorize Preview or approve a Tempo grant
+install   Enable local gas maintenance
+status    Inspect a job
+logs      Read recent events
+start / stop / uninstall
+run / pause
 
-run is quote-only unless --execute is supplied. max-spend caps cumulative
-MPP token charges. --fee-reserve adds headroom to the native Tempo allowance
-for network fees; Tempo caps their combined spend. Executing requires
---accept-network-fees and an already authorized Tempo Wallet.
-
---interval-seconds 60 / --cooldown-seconds 300 are init options.
---rpc URL / --api URL / --state-dir DIR are runtime options.
-Use one persistent state directory; deleting/copying it can reset budgets.
-authorize previews a dedicated key grant; --approve opens Tempo passkey approval.
-Tempo owns the grant expiry and token limit. install uses a local user scheduler.
+Use glue COMMAND --help. No Glue fees; network and provider costs apply.
 `;
+
+async function sender() {
+  try {
+    const { stdout } = await promisify(execFile)(
+      join(homedir(), ".tempo/bin/tempo"),
+      ["wallet", "whoami", "--format", "json"],
+      { timeout: 30000, maxBuffer: 1024 * 1024 },
+    );
+    const identity = JSON.parse(stdout);
+    if (
+      identity.ready !== true ||
+      identity.key?.chain_id !== 4217 ||
+      !address(identity.wallet) ||
+      identity.key?.wallet_address?.toLowerCase() !== identity.wallet.toLowerCase()
+    )
+      throw new Error();
+    return identity.wallet;
+  } catch {
+    throw new Error("Cannot read a connected Tempo mainnet wallet. Supply --sender ADDRESS.");
+  }
+}
+
+async function printStatus(result, json) {
+  if (json) return console.log(JSON.stringify(result, null, 2));
+  if (result.installed === false && !result.job && !result.policy)
+    return console.log("gas · not installed");
+  const { formatUnits } = await import("viem");
+  const config = result.job ?? result.policy;
+  const grant = result.authorization ?? result.authority;
+  const state = result.state;
+  const pending = result.pending ?? state?.pending?.key;
+  const mode =
+    result.paused || state?.paused
+      ? "paused"
+      : "installed" in result
+        ? result.installed && result.enabled && result.scheduled
+          ? "scheduled"
+          : "stopped"
+        : "manual";
+  console.log(`gas · ${config?.chain ?? "unknown"} · ${mode}`);
+  console.log(
+    `balance   ${result.balance == null ? "unavailable" : formatUnits(BigInt(result.balance), 18) + " ETH"}`,
+  );
+  console.log(
+    `allowance ${grant ? formatUnits(BigInt(grant.limit), 6) + " " + config.token : "not authorized"}`,
+  );
+  console.log(
+    `expires   ${grant ? grant.expiresAt + (grant.remainingSeconds === 0 ? " (expired)" : "") : "—"}`,
+  );
+  console.log(`pending   ${pending ?? "none"}`);
+  if (result.lastRun) console.log(`last      ${result.lastRun.status}`);
+  if (result.error) console.log(`error     ${result.error}`);
+}
 
 async function main() {
   const { values: v, positionals } = parseArgs({
     allowPositionals: true,
-    options: Object.fromEntries([
-      ...[
-        "policy",
-        "sender",
-        "recipient",
-        "chain",
-        "token",
-        "below-eth",
-        "amount",
-        "min-receive-eth",
-        "max-spend",
-        "fee-reserve",
-        "duration",
-        "interval-seconds",
-        "cooldown-seconds",
-        "rpc",
-        "api",
-        "state-dir",
-        "service-dir",
-      ].map((key) => [key, { type: "string" }]),
-      ...["execute", "accept-network-fees", "watch", "approve", "help", "json"].map((key) => [
-        key,
-        { type: "boolean" },
-      ]),
-    ]),
+    options: Object.fromEntries(
+      [...new Set(["help", ...Object.values(commands).flatMap(({ flags }) => flags)])].map(
+        (key) => [
+          key,
+          {
+            type: ["execute", "accept-network-fees", "watch", "approve", "help", "json"].includes(
+              key,
+            )
+              ? "boolean"
+              : "string",
+          },
+        ],
+      ),
+    ),
   });
   const [command] = positionals;
-  if (v.help || !command) {
+  if (!command) {
+    if (Object.keys(v).some((key) => key !== "help"))
+      throw new Error("Choose a command. Use glue --help.");
     console.log(help);
     return;
   }
-  if (v.json && command !== "services") throw new Error("--json is available for services.");
+  const spec = Object.hasOwn(commands, command) ? commands[command] : null;
+  if (!spec) throw new Error(`Unknown command: ${command}. Use glue --help.`);
+  for (const key of Object.keys(v))
+    if (key !== "help" && !spec.flags.includes(key))
+      throw new Error(`--${key} is not supported by ${command}.`);
+  if (v.help) {
+    console.log(`glue ${spec.usage}`);
+    const extra = spec.flags.filter((flag) => !spec.usage.includes(`--${flag}`));
+    if (extra.length) console.log(`Options: ${extra.map((flag) => "--" + flag).join(", ")}`);
+    if (command === "init")
+      console.log(
+        "Sender defaults to the connected Tempo mainnet wallet. Amounts and duration are required; interval defaults to 60s and cooldown to 300s.",
+      );
+    if (command === "run")
+      console.log(
+        "Quote-only unless --execute is supplied. Runtime overrides: --rpc, --api, --state-dir.",
+      );
+    return;
+  }
+  if (command === "status" && !v.policy && (v.rpc || v.api || v["state-dir"]))
+    throw new Error(
+      "Installed status uses its saved settings; runtime overrides require --policy.",
+    );
   if (command === "services") {
     const services = [
       {
@@ -97,8 +195,6 @@ async function main() {
       : services;
     if (positionals.length > 2 || !selected.length)
       throw new Error("Use glue services [gas|refuel] [--json].");
-    if (Object.keys(v).some((key) => key !== "json"))
-      throw new Error("services only accepts --json; it does not configure or enable jobs.");
     if (v.json) console.log(JSON.stringify(selected, null, 2));
     else {
       console.log("glue services — pay from Tempo with pathUSD or USDC.e\n");
@@ -114,7 +210,7 @@ async function main() {
     return;
   }
   if (command === "service-tick") {
-    if (positionals.length !== 1) throw new Error(help);
+    if (positionals.length !== 1) throw new Error(`Use glue ${spec.usage}`);
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once("SIGINT", stop);
@@ -138,9 +234,12 @@ async function main() {
       (positionals[1] !== "gas" && !(command === "status" && positionals.length === 1)) ||
       positionals.length > 2
     )
-      throw new Error(help);
+      throw new Error(`Use glue ${spec.usage}`);
     const result = await serviceCommand(command, v);
-    console.log(JSON.stringify(result, null, 2));
+    if (command === "status") {
+      await printStatus(result, v.json);
+      if (result.error) process.exitCode = 1;
+    } else console.log(JSON.stringify(result, null, 2));
     return;
   }
   if (
@@ -148,14 +247,14 @@ async function main() {
     !["init", "authorize", "run", "status", "pause"].includes(command) ||
     !v.policy
   )
-    throw new Error(help);
+    throw new Error(`Use glue ${spec.usage}`);
   const path = command === "init" ? resolve(v.policy) : await realpath(resolve(v.policy));
   if (command === "init") {
     if (!v["fee-reserve"])
       throw new Error("Choose an explicit --fee-reserve for Tempo network fees.");
     const config = validate({
       version: 2,
-      sender: v.sender,
+      sender: v.sender ?? (await sender()),
       recipient: v.recipient,
       chain: v.chain,
       token: v.token,
@@ -182,22 +281,12 @@ async function main() {
   const directory = stateDirectory(path, v["state-dir"]);
   if (command === "status") {
     const state = await loadState(directory);
-    let authority;
-    if (state?.authorization?.phase === "active") {
-      try {
-        const grant = await createIO(config, directory, v).authority(state.authorization.key);
-        authority = {
-          ...grant,
-          expiresAt: new Date(grant.expiry * 1000).toISOString(),
-          remainingSeconds: Math.max(0, grant.expiry - Math.floor(Date.now() / 1000)),
-        };
-      } catch (error) {
-        authority = { status: "unavailable", message: error.message };
-        process.exitCode = 1;
-      }
-    }
-    console.log(
-      JSON.stringify({ policy: config, stateDirectory: directory, state, authority }, null, 2),
+    const details = await inspectJob(state, createIO(config, directory, v));
+    const error = details.errors.join("; ");
+    if (error) process.exitCode = 1;
+    await printStatus(
+      { policy: config, stateDirectory: directory, state, ...details, ...(error ? { error } : {}) },
+      v.json,
     );
     return;
   }

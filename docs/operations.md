@@ -2,29 +2,15 @@
 
 Create a job with `glue init`; the [gas service page](services/gas.md#enable) has a Base example. Install one local `gas` service, or run the same worker in the foreground. Use one scheduler and one persistent state directory per job.
 
-## Install and manage
+## Manage
 
-```sh
-glue install gas --policy .glue/base.local.json --accept-network-fees --approve
-glue status
-glue logs gas
-```
+Follow the [gas setup](services/gas.md#enable) to install. `glue status` and `glue status --policy FILE` show concise text; add `--json` for full records (including the previous status fields), live balance and authority. Failed reads remain visible and return a nonzero exit code. `glue logs gas` returns the latest 100 events.
 
-For a job without a grant, `--approve` opens Tempo Wallet's passkey flow. Omit it to preview the required allowance without installing. If the job already has a usable grant, install reuses it and enables scheduling without another prompt. It never renews a grant.
+`stop gas` disables scheduling; `start gas` resumes the same job; `uninstall gas` removes scheduler files. All preserve payment history and authority. Revoke the dedicated key in Tempo Wallet to remove signing authority.
 
-Each scheduled process checks once, then exits. At or above `belowEth`, nothing is paid. Below it, Glue requests a fixed `amount` refill, checks the minimum output, rechecks the balance and authority, and submits once. Later ticks reconcile delivery before considering another refill. This buys a fixed amount of gas; it does not calculate an exact top-up to the threshold.
+Stop cancels in-flight reads. A payment already submitted may still finish; its saved order must be reconciled. Stop does not terminate a separately launched foreground worker.
 
-| Command                     | Effect                                                                |
-| --------------------------- | --------------------------------------------------------------------- |
-| `glue status`               | Scheduling, configured job, latest outcome, job lock and native grant |
-| `glue logs gas`             | Latest 100 compact events                                             |
-| `glue stop gas`             | Disable scheduling and stop its process                               |
-| `glue start gas`            | Resume the installed job using existing authority                     |
-| `glue uninstall gas`        | Stop scheduling and remove its native files                           |
-| `glue status --policy FILE` | Full job state and saved receipts                                     |
-| `glue run --policy FILE`    | Check/quote without paying, or reconcile a submitted payment          |
-
-Stop and uninstall preserve the policy, Tempo key, payment journal, logs and receipts. They do not revoke the key or stop a separately launched foreground worker. Revoke the dedicated key in Tempo Wallet to remove its signing authority.
+Commands reject unrelated flags. Use `glue COMMAND --help`; installed status uses saved runtime settings. Direct policy commands accept the original overrides.
 
 ## Budget and expiry
 
@@ -62,7 +48,7 @@ The destination, threshold and routing checks are Glue's job logic. They are not
 | `error`                               | Read the message; expired/revoked authority, insufficient allowance or an IO failure can stop a check |
 | `payment_unknown` / `needs_attention` | Inspect the saved order before taking further action                                                  |
 
-Overlapping ticks do not add log events; inspect the lock shown by `glue status` if checks appear stuck. Normal failures are logged. An expired or revoked key blocks new payments, while an already-submitted order can still reconcile. Neither `start` nor reinstalling the same job restores a spent budget.
+Overlapping ticks do not add log events; inspect the lock shown by `glue status --json` if checks appear stuck. Normal failures are logged. An expired or revoked key blocks new payments, while an already-submitted order can still reconcile. Neither `start` nor reinstalling the same job restores a spent budget.
 
 To enable a new grant:
 

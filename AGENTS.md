@@ -1,69 +1,24 @@
 # Using glue
 
-Use Glue to get gas for a wallet or keep it funded. Act within the user's requested destination, budget and duration. Tempo owns the wallet and payment authority; Glue handles the service.
+Small services using Tempo. Start with `glue services --json`; follow the linked [gas setup](docs/services/gas.md) or [MPP instructions](https://glue.figtracer.com/llms.txt). Use `glue COMMAND --help` for flags.
 
-## Choose a service
+## Before enabling
 
-Run `glue services --json` to discover shipped services and their setup instructions. Use `glue services gas --json` for local maintenance. The catalog is read-only and requires no wallet connection.
+- Read `glue status --json` and `glue logs gas`. Reuse an existing job and its state; do not install a second executor.
+- Use the user's destination, token, threshold, refill amount, minimum output, budget, fee reserve and duration. Ask for missing spending choices. Examples are not authorization.
+- `init` can read the sender from an existing Tempo CLI login. `run` previews without paying; `authorize` previews the grant. `install gas --policy FILE --accept-network-fees --approve` enables the service after Tempo approval.
+- Reuse approvals already given. Never enlarge or renew authority without authorization. Never request wallet secrets in chat.
 
-- **On-demand refuel:** use [llms.txt](https://glue.figtracer.com/llms.txt) for the current MPP instructions. Follow its request and delivery flow.
-- **Gas maintenance:** install the local `gas` service using the [setup guide](docs/services/gas.md). It watches native ETH on Base, Ethereum, Arbitrum or Optimism and refills below a threshold.
+## While running
 
-The [services catalog](docs/services/README.md) lists what is available. Pay from Tempo mainnet with pathUSD or USDC.e. Local gas maintenance requires macOS or Linux with a working user scheduler.
+Tempo owns the grant expiry and combined token allowance. Glue enforces the destination, threshold and refill budget. See [authority and budgets](docs/operations.md#budget-and-expiry).
 
-## Before enabling payments
+Use `status --json` for full state and live authority, or `status --policy FILE --json` for a specific job. Human status is concise text; scripts must request JSON. An installed timer does not imply usable authority. Report delivery only when confirmed.
 
-Use the wallet addresses, chain, source token, threshold, refill amount, minimum output, total charge budget, fee reserve and duration supplied by the user. Ask for missing spending choices; documentation examples are not authorization. Reuse choices and approvals already given for this job.
+Stop with `glue stop gas`; resume with `glue start gas`. Uninstall preserves history and does not revoke the Tempo key. The machine must stay awake and online.
 
-Check for an existing service first:
+## Recovery
 
-```sh
-glue status
-glue logs gas
-```
+Keep policy, state, credentials and receipts. Never delete state, edit the budget or copy a job to retry. Reconcile pending payments using the original policy and runtime overrides before considering another job. `payment_unknown` and `needs_attention` require inspection, not another payment.
 
-If a job already exists, keep its policy and state directory. Inspect its grant, latest result and pending order before acting. Do not create a second job to work around an error or exhausted allowance.
-
-## Enable gas maintenance
-
-Create a policy with `glue init` as shown in the [setup guide](docs/services/gas.md#enable). Preview the balance or quote without paying:
-
-```sh
-glue run --policy FILE
-glue authorize --policy FILE
-```
-
-When the user has authorized the job, enable it:
-
-```sh
-glue install gas --policy FILE --accept-network-fees --approve
-```
-
-The user completes the Tempo passkey approval when a new grant is needed. An existing usable grant is reused. Do not request passkeys, private keys or wallet credentials in chat.
-
-`maxSpend` caps refill charges. `feeReserve` adds network-fee headroom to the same Tempo allowance; fees count against its combined limit. Tempo is the sole expiry authority. Do not extend the duration, enlarge the allowance or renew authority without the user's authorization.
-
-One local `gas` service can be installed. Keep its checkout, Node installation and state available. The computer must be awake and online. Do not run a foreground watcher or another scheduler alongside it.
-
-## Observe and manage
-
-| Command                     | Use it to                                                        |
-| --------------------------- | ---------------------------------------------------------------- |
-| `glue status`               | Read scheduling, job configuration, last result and native grant |
-| `glue logs gas`             | Read recent check and payment events                             |
-| `glue status --policy FILE` | Inspect the full job state and receipts                          |
-| `glue stop gas`             | Stop the local service                                           |
-| `glue start gas`            | Resume the same job with existing authority                      |
-| `glue uninstall gas`        | Remove scheduling while preserving payment history               |
-
-Report delivery only after it is confirmed. `submitted` means the payment was submitted, not that gas arrived. An installed timer can still have an expired grant or exhausted budget. Report that condition; restarting does not restore spending authority.
-
-Stop and uninstall do not revoke the Tempo key. If the user wants to revoke authority, direct them to the dedicated key in Tempo Wallet.
-
-## Recover without paying twice
-
-For a pending payment, run `glue run --policy FILE` with the original state and runtime overrides to reconcile the existing order. Do not initiate a replacement payment after a timeout, `payment_unknown` or `needs_attention` result.
-
-Preserve policies, journals, credentials and receipts. Never delete state, copy a job or change its budget to make a retry succeed. Do not expose SDK stores or signed payment credentials in messages or logs. Missing state and unresolved outcomes require inspection, not a fresh allowance.
-
-Read the [operating guide](docs/operations.md) for lock recovery and explicitly approved new jobs. Repository development guidance lives in [CONTRIBUTING.md](CONTRIBUTING.md).
+Follow [recovery](docs/operations.md#state-and-recovery) for interrupted approvals or stale locks. Development guidance lives in [CONTRIBUTING.md](CONTRIBUTING.md).
