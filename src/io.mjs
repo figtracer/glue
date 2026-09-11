@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { checkGrant } from "./authorization.mjs";
-import { createWallet } from "./wallet.mjs";
 import { CHAINS, units } from "./worker.mjs";
 
 export const DEFAULT_RPC = {
@@ -92,12 +91,13 @@ async function jsonFetch(url, options = {}) {
   return { status: response.status, body, challenge: response.headers.get("WWW-Authenticate") };
 }
 
-export function createIO(
-  config,
-  directory,
-  options = {},
-  wallet = createWallet(config, directory),
-) {
+export function createIO(config, directory, options = {}, wallet) {
+  // Balance checks and receipt recovery do not need a signing provider.
+  let walletPromise;
+  const getWallet = () =>
+    (walletPromise ??= wallet
+      ? Promise.resolve(wallet)
+      : import("./wallet.mjs").then(({ createWallet }) => createWallet(config, directory)));
   const api = safeUrl(options.api ?? "https://glue.figtracer.com");
   const rpc = safeUrl(options.rpc ?? DEFAULT_RPC[config.chain]);
   async function chainCall(method, params) {
@@ -117,7 +117,7 @@ export function createIO(
     if (state?.authorization?.phase !== "active")
       throw new Error("Run glue authorize --policy FILE --approve first.");
     approvedKey = state.authorization.key;
-    const grant = await wallet.authority(approvedKey);
+    const grant = await (await getWallet()).authority(approvedKey);
     authorizedUntil = checkGrant(config, state.authorization, grant, Date.now());
     if (BigInt(grant.limit) <= units(config.amount, 6))
       throw new Error(
@@ -126,8 +126,8 @@ export function createIO(
     return authorizedUntil;
   }
   return {
-    connect: wallet.connect,
-    authority: wallet.authority,
+    connect: async (approval) => (await getWallet()).connect(approval),
+    authority: async (key) => (await getWallet()).authority(key),
     describe: (value) => console.log(JSON.stringify(value)),
     verifyWallet,
     now: () => Date.now(),
@@ -168,7 +168,7 @@ export function createIO(
       const response = await fetch(url, init);
       if (response.status !== 402)
         throw new Error("Order changed before payment; reconcile the saved order.");
-      const credential = await wallet.credential(pending, response, approvedKey);
+      const credential = await (await getWallet()).credential(pending, response, approvedKey);
       await atomicWrite(join(directory, `${pending.key}.credential.json`), { credential });
       options.signal?.throwIfAborted();
       if (Date.now() >= Math.min(authorizedUntil, pending.offer.expiresAt))
