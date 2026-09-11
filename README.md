@@ -6,27 +6,14 @@ small services for getting funds where they need to be. gas refill first.
 
 [website](https://glue.figtracer.com) · [services](docs/services/README.md) · [agent instructions](AGENTS.md) · [getting started](#getting-started) · [operating guide](docs/operations.md) · [contributing](CONTRIBUTING.md) · [ideas](docs/ideas.md)
 
-## What is glue?
+Glue watches gas and refills when needed, using your Tempo wallet and a bounded passkey approval. The website handles one-off refills; the CLI keeps a wallet funded locally.
 
-Glue adds small services agents can enable around Tempo. Tempo owns the wallet, passkey approval and spending authority. Glue handles the jobs.
-
-The first service watches a wallet's native gas balance. Below your threshold, it pays through [Glue's MPP API](https://glue.figtracer.com/llms.txt), tracks delivery and checks again later. It runs locally, even after you close the terminal.
-
-Pay from Tempo mainnet with pathUSD or USDC.e. The CLI supports native ETH on Base, Ethereum, Arbitrum and Optimism. The website also offers one-off refills and Sepolia routes.
-
-No Glue subscription, platform fee or markup. You pay network and upstream provider costs.
-
-Keep your agent and your Tempo wallet. Glue uses the local scheduler, ordinary code and a small payment journal; no model runs to check a balance. No dashboard, database server or container is needed.
-
-This is an early prototype, not an official Tempo feature. More services can follow as we learn what is useful.
+No Glue fees or markup. Network and provider costs apply. No model, database server or container runs your checks. This is an independent prototype, not an official Tempo feature.
 
 ## Services
 
-Pick what you need. Each service has its own setup and usage page.
-
 ```sh
 glue services
-glue services gas
 glue services --json
 ```
 
@@ -50,7 +37,7 @@ npm ci --omit=dev --ignore-scripts
 npm link --omit=dev --ignore-scripts
 ```
 
-Then choose a [service](docs/services/README.md). For automatic refills, follow the [gas maintenance setup](docs/services/gas.md#enable): configure your wallet and threshold, approve a bounded Tempo grant, and install the local service. Installing the CLI alone does not enable payments or scheduling.
+Follow the [gas setup](docs/services/gas.md#enable). Installation alone enables nothing.
 
 For a one-off refill, open [glue.figtracer.com](https://glue.figtracer.com). Agents can use the [MPP instructions](https://glue.figtracer.com/llms.txt).
 

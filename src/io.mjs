@@ -85,7 +85,10 @@ async function jsonFetch(url, options = {}) {
   const response = await fetch(url, {
     ...options,
     redirect: "error",
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.any([
+      AbortSignal.timeout(30_000),
+      ...(options.signal ? [options.signal] : []),
+    ]),
   });
   const body = await response.json();
   return { status: response.status, body, challenge: response.headers.get("WWW-Authenticate") };
@@ -102,6 +105,7 @@ export function createIO(config, directory, options = {}, wallet) {
   const rpc = safeUrl(options.rpc ?? DEFAULT_RPC[config.chain]);
   async function chainCall(method, params) {
     const reply = await jsonFetch(rpc, {
+      signal: options.signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
@@ -139,6 +143,7 @@ export function createIO(config, directory, options = {}, wallet) {
     },
     order: (pending) =>
       jsonFetch(new URL("/api/refuel", api), {
+        signal: options.signal,
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": pending.key },
         body: JSON.stringify(pending.body),
@@ -147,7 +152,7 @@ export function createIO(config, directory, options = {}, wallet) {
       const url = new URL(path, api);
       if (url.origin !== api.origin || url.pathname !== "/api/status")
         throw new Error("Unexpected receipt URL.");
-      const response = await jsonFetch(url);
+      const response = await jsonFetch(url, { signal: options.signal });
       if (response.status !== 200)
         throw new Error(`Receipt unavailable (HTTP ${response.status}).`);
       return response.body;
@@ -165,7 +170,10 @@ export function createIO(config, directory, options = {}, wallet) {
         redirect: "error",
         signal: AbortSignal.timeout(timeout),
       };
-      const response = await fetch(url, init);
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.any([init.signal, ...(options.signal ? [options.signal] : [])]),
+      });
       if (response.status !== 402)
         throw new Error("Order changed before payment; reconcile the saved order.");
       const credential = await (await getWallet()).credential(pending, response, approvedKey);
@@ -181,5 +189,28 @@ export function createIO(config, directory, options = {}, wallet) {
       if (![200, 202].includes(paid.status))
         throw new Error("Payment outcome unresolved; reconcile the saved order.");
     },
+  };
+}
+
+// Read balance and authority independently so one unavailable provider does not hide the other.
+export async function inspectJob(state, io) {
+  const [balance, authority] = await Promise.allSettled([
+    io.balance(),
+    state?.authorization?.phase === "active" ? io.authority(state.authorization.key) : null,
+  ]);
+  const grant = authority.status === "fulfilled" ? authority.value : null;
+  return {
+    balance: balance.status === "fulfilled" ? balance.value.toString() : null,
+    authority: grant
+      ? {
+          ...grant,
+          remaining: grant.limit,
+          expiresAt: new Date(grant.expiry * 1000).toISOString(),
+          remainingSeconds: Math.max(0, grant.expiry - Math.floor(Date.now() / 1000)),
+        }
+      : null,
+    errors: [balance, authority]
+      .filter((item) => item.status === "rejected")
+      .map((item) => item.reason.message),
   };
 }

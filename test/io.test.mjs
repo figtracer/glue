@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createIO, atomicWrite } from "../src/io.mjs";
+import { createIO, inspectJob, atomicWrite } from "../src/io.mjs";
 import { initialState, policyHash, tick, TOKENS } from "../src/worker.mjs";
 import { Challenge } from "mppx";
 import { checkChallenge, createWallet } from "../src/wallet.mjs";
@@ -26,6 +26,7 @@ const config = {
 test("HTTP refill binds signing key, preserves credential, reconciles and spends once", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "glue-io-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
+  const controller = new AbortController();
   let payments = 0,
     signatures = 0,
     remaining = "50000";
@@ -44,6 +45,7 @@ test("HTTP refill binds signing key, preserves credential, reconciles and spends
     if (req.headers.authorization) {
       assert.equal(req.headers.authorization, "Payment signed");
       payments++;
+      controller.abort();
     }
     res.statusCode = payments ? 200 : 402;
     res.setHeader("WWW-Authenticate", "Payment test");
@@ -93,7 +95,18 @@ test("HTTP refill binds signing key, preserves credential, reconciles and spends
     assert.equal(payments, 0);
   }
   remaining = "60000";
-  assert.equal((await tick(config, state, io, { execute: true })).status, "submitted");
+  const cancellable = createIO(
+    config,
+    dir,
+    { api, rpc: api + "/rpc", signal: controller.signal },
+    wallet,
+  );
+  assert.equal((await tick(config, state, cancellable, { execute: true })).status, "submitted");
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(
+    JSON.parse(await readFile(join(dir, `${state.pending.key}.response.json`))).orderId,
+    state.pending.key,
+  );
   const saved = JSON.parse(await readFile(join(dir, "state.json")));
   assert.equal((await tick(config, saved, io)).status, "delivered");
   assert.equal((await tick(config, saved, io, { execute: true })).status, "budget_exhausted");
@@ -155,4 +168,62 @@ test("installed MPP SDK prepares and rejects a mismatched challenge before signi
     ),
     /MPP payment challenge differs/,
   );
+});
+
+test(
+  "cancelling RPC, quote and receipt reads aborts without creating payment state",
+  { timeout: 5000 },
+  async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), "glue-cancel-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    let received;
+    const server = createServer(() => received());
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const api = `http://127.0.0.1:${server.address().port}`;
+    for (const action of [
+      (io) => io.balance(),
+      (io) => io.order({ key: "test", body: {} }),
+      (io) => io.receipt("/api/status"),
+    ]) {
+      const controller = new AbortController();
+      const request = new Promise((resolve) => {
+        received = resolve;
+      });
+      const io = createIO(config, dir, { api, rpc: api, signal: controller.signal });
+      const result = action(io);
+      const rejected = assert.rejects(result, { name: "AbortError" });
+      await request;
+      controller.abort();
+      await rejected;
+    }
+    await assert.rejects(readFile(join(dir, "state.json")), { code: "ENOENT" });
+  },
+);
+
+test("status preserves balance or authority when the other read fails", async () => {
+  const state = { authorization: { phase: "active", key: "key" } };
+  const grant = { expiry: 1, limit: "50000", source: "tempo-chain" };
+  const io = {
+    balance: async () => {
+      throw new Error("RPC unavailable");
+    },
+    authority: async () => grant,
+  };
+  const result = await inspectJob(state, io);
+  assert.equal(result.balance, null);
+  assert.equal(result.authority.remainingSeconds, 0);
+  assert.equal(result.authority.remaining, "50000");
+  assert.deepEqual(result.errors, ["RPC unavailable"]);
+  io.balance = async () => 123n;
+  io.authority = async () => {
+    throw new Error("Tempo unavailable");
+  };
+  const partial = await inspectJob(state, io);
+  assert.equal(partial.balance, "123");
+  assert.equal(partial.authority, null);
+  assert.deepEqual(partial.errors, ["Tempo unavailable"]);
 });

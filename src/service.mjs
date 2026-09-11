@@ -2,7 +2,7 @@ import { access, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { authorize } from "./authorization.mjs";
-import { atomicWrite, createIO, loadState, lock, stateDirectory } from "./io.mjs";
+import { atomicWrite, createIO, inspectJob, loadState, lock, stateDirectory } from "./io.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { initialState, policyHash, tick, validate, validateState } from "./worker.mjs";
 
@@ -66,15 +66,10 @@ export async function serviceCommand(
       status.pending = state.pending?.key ?? null;
       status.paused = state.paused;
       status.lock = await readJson(join(record.stateDirectory, "run.lock"));
-      const grant = await ioFactory(config, record.stateDirectory, record).authority(
-        state.authorization?.key,
-      );
-      status.authorization = {
-        source: grant.source,
-        expiresAt: new Date(grant.expiry * 1000).toISOString(),
-        remainingSeconds: Math.max(0, grant.expiry - Math.floor(Date.now() / 1000)),
-        remaining: grant.limit,
-      };
+      const details = await inspectJob(state, ioFactory(config, record.stateDirectory, record));
+      status.balance = details.balance;
+      status.authorization = details.authority;
+      if (details.errors.length) status.error = details.errors.join("; ");
     } catch (error) {
       status.error = error.message;
     }

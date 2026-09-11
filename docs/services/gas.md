@@ -15,15 +15,17 @@ watch gas. refill when needed.
 
 [Install the CLI](../../README.md#getting-started) first. You need a [Tempo Wallet](https://wallet.tempo.xyz/) and a working user scheduler: launchd on macOS or systemd on Linux.
 
-Create a job, replacing the wallet placeholders:
+Create a job with your destination and spending limits:
 
 ```sh
 glue init --policy .glue/base.local.json \
-  --sender YOUR_TEMPO_WALLET --recipient YOUR_BASE_WALLET \
+  --recipient YOUR_BASE_WALLET \
   --chain base \
   --below-eth 0.00002 --amount 0.05 --min-receive-eth 0.000001 \
   --max-spend 0.25 --fee-reserve 0.01 --duration 30m --token pathusd
 ```
+
+Sender is read from the existing Tempo CLI login (`~/.tempo/bin/tempo`). If unavailable, supply `--sender ADDRESS`. No login or approval opens during setup.
 
 This example spends 0.05 pathUSD per refill when Base ETH is below 0.00002, with a 0.25 total refill budget. Amounts are examples; provider minimums and gas costs vary.
 
@@ -39,9 +41,7 @@ Enable scheduled refills:
 glue install gas --policy .glue/base.local.json --accept-network-fees --approve
 ```
 
-Tempo Wallet opens for passkey approval. This example requests one **0.26 pathUSD allowance** for refills and network fees, expiring 30 minutes after the approval request. The 0.01 fee reserve is headroom, not a fee quote. Tempo owns that limit and expiry.
-
-An existing usable grant is reused. Glue never renews it in the background. One local `gas` service can be installed at a time.
+Approve the 0.26 pathUSD allowance in Tempo Wallet: 0.25 for refills plus 0.01 network-fee headroom, valid for 30 minutes from the request. Existing usable grants are reused. See [budget and expiry](../operations.md#budget-and-expiry).
 
 ## What happens next
 
@@ -51,16 +51,8 @@ The refill buys a fixed source-token amount of gas; it does not target an exact 
 
 ## Manage
 
-| Command              | Effect                                       |
-| -------------------- | -------------------------------------------- |
-| `glue status`        | See the job, latest result and grant         |
-| `glue logs gas`      | Read recent check and payment events         |
-| `glue stop gas`      | Stop scheduling                              |
-| `glue start gas`     | Resume the same job                          |
-| `glue uninstall gas` | Remove scheduling and retain payment history |
+`glue status` shows balance, remaining Tempo allowance, expiry and pending delivery. Add `--json` for the full record. `glue logs gas` shows recent events.
 
-Expiry or budget exhaustion stops new payments. The service may remain installed, reporting that it cannot spend. Starting or reinstalling never resets the budget. See [budgets, renewal and recovery](../operations.md) before enabling a new job.
+Use `glue stop gas`, `glue start gas` or `glue uninstall gas`. These preserve payment history and never renew authority. One local service can be installed; keep the computer awake and online.
 
-For a foreground worker, use `glue run --policy FILE --execute --accept-network-fees --watch` instead of installing.
-
-[← Current services](README.md)
+See [operations](../operations.md) for recovery and foreground execution.
