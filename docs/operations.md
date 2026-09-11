@@ -1,6 +1,6 @@
 # Running glue
 
-Create a job with `glue init`; the [README](../README.md#getting-started) has a Base example. Install one local `gas` service, or run the same worker in the foreground. Use one scheduler and one persistent state directory per job.
+Create a job with `glue init`; the [gas service page](services/gas.md#enable) has a Base example. Install one local `gas` service, or run the same worker in the foreground. Use one scheduler and one persistent state directory per job.
 
 ## Install and manage
 

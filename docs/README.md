@@ -1,6 +1,8 @@
-# Developer docs
+# Docs
 
-Use the [operating guide](operations.md) to install and manage the gas service. The [ideas](ideas.md) page separates the current implementation from possible future services.
+Start with [current services](services/README.md) to pick what to enable. Each service page covers its setup and usage. The [operating guide](operations.md) covers budgets, expiry and recovery. [Ideas](ideas.md) are future candidates.
+
+## Project layout
 
 A small map of the repo:
 
