@@ -10,8 +10,6 @@ Glue is a small playground for agent services around Tempo: funding, onramping a
 
 Tempo Wallet passkeys approve a dedicated key through the official Accounts SDK. Tempo owns the expiry and combined token allowance. Glue owns the destination, threshold, charge budget, routing and receipt logic. Pending payments and spending history survive restarts and uninstall.
 
-VK is optional future work for other kinds of human-approved actions. Gas refill already uses Tempo passkeys and does not need a separate VK approval or local expiry policy.
-
 See the [operating guide](operations.md) for the implemented workflow. The ideas below are candidates, not available commands.
 
 ## Useful services next
@@ -55,7 +53,6 @@ Hosted execution would need explicit authority, isolation and one active executo
 
 - [Glue](https://glue.figtracer.com/) and [MPP API](https://glue.figtracer.com/llms.txt)
 - [Bloom](https://github.com/bloom-directory/bloom)
-- [Tempo human authorization / VK](https://x.com/tempo/article/2090136779470844299)
 - [TIP-1011: enhanced access-key permissions](https://github.com/tempoxyz/tempo/blob/main/tips/tip-1011.md)
 - [Relay solver model](https://docs.relay.link/references/protocol/guides/for-solvers)
 

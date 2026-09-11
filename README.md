@@ -4,7 +4,7 @@
 
 small services for getting funds where they need to be. gas refill first.
 
-[website](https://glue.figtracer.com) · [services](docs/services/README.md) · [getting started](#getting-started) · [operating guide](docs/operations.md) · [contributing](CONTRIBUTING.md) · [ideas](docs/ideas.md)
+[website](https://glue.figtracer.com) · [services](docs/services/README.md) · [agent instructions](AGENTS.md) · [getting started](#getting-started) · [operating guide](docs/operations.md) · [contributing](CONTRIBUTING.md) · [ideas](docs/ideas.md)
 
 ## What is glue?
 
