@@ -14,7 +14,7 @@ A small map of the repo:
 | `src/service.mjs`       | Installed job lifecycle, status and bounded logs        |
 | `src/scheduler.mjs`     | User-level launchd and systemd registration             |
 | `src/worker.mjs`        | Thresholds, budgets and order state transitions         |
-| `src/funding.mjs`       | Funding selection, fleet activity and Tempo reserves    |
+| `src/funding.mjs`       | Funding selection, fleet activity and Tempo swaps       |
 | `src/prepared.mjs`      | Stateful transaction simulation and chain fee estimates |
 | `src/authorization.mjs` | Grant approval, binding and recovery                    |
 | `src/wallet.mjs`        | Tempo grants, keychain reads and MPP signing            |

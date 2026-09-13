@@ -1,35 +1,34 @@
 # Current services
 
-small things you can use today. pick one, configure it, and go.
+small things you can use today. pick one and go.
 
-Run `glue services` to browse, `glue services fleet` for a specific service, or `glue services --json` from an agent. Discovery reads the bundled catalog; it does not connect a wallet or install anything.
+Run `glue services` to browse or `glue services --json` from an agent. Discovery is local: it does not connect a wallet, create a job, or enable anything.
 
-No Glue fees. Network and upstream provider costs still apply.
+| Service                         | Use it for                       | Runs through                     | Start here                 |
+| ------------------------------- | -------------------------------- | -------------------------------- | -------------------------- |
+| **Refill** · `refill`           | Keep wallets ready automatically | Local launchd or systemd service | [Set up refill](refill.md) |
+| **On-demand refuel** · `refuel` | Get gas immediately              | Website or MPP API               | [Use refuel](refuel.md)    |
 
-| Service                        | Use it for                                        | Runs through                     | Start here                              |
-| ------------------------------ | ------------------------------------------------- | -------------------------------- | --------------------------------------- |
-| **Gas maintenance** · `gas`    | Keep a wallet ready for its next transaction      | Local launchd or systemd service | [Enable gas maintenance](gas.md#enable) |
-| **Prepared funding** · `ready` | Fund a prepared transaction list                  | Local service                    | [Set up](ready.md)                      |
-| **Fleet funding** · `fleet`    | Keep active agent wallets funded under one budget | Local service                    | [Set up](fleet.md)                      |
-| **Token reserve** · `reserve`  | Keep a payment token available on Tempo           | Local service                    | [Set up](reserve.md)                    |
-| **On-demand refuel**           | Get gas now, from a browser or an agent           | Website or MPP API               | [Use refuel](refuel.md)                 |
+`refill` has four setup modes:
 
-All payments use your existing Tempo mainnet wallet. Gas services deliver native ETH through Glue/Relay. Token reserves swap directly on Tempo. Read-only discovery and configuration require no account or payment.
+| Mode          | Select it with                                          | `--amount` means          |
+| ------------- | ------------------------------------------------------- | ------------------------- |
+| One wallet    | `--chain CHAIN --recipient ADDRESS`                     | Fixed source-token charge |
+| Fleet         | `--wallets FILE`                                        | Maximum input per refill  |
+| Prepared work | `--transactions FILE --chain CHAIN --recipient ADDRESS` | Maximum input per refill  |
+| Tempo token   | `--chain tempo --receive-token TOKEN --target AMOUNT`   | Maximum input per swap    |
 
-## Local services
+All payments use the user's existing Tempo mainnet wallet. Native gas currently routes through Glue/Relay; Tempo token swaps execute directly on Tempo. Glue charges no fee or subscription. Network and upstream provider costs still apply.
 
-`glue list` shows saved local jobs, including uninstalled jobs with receipts to reconcile. Add `--json` for agent use. It reads local state only; use `glue status NAME` for live authority, balances and scheduler status.
-
-Local services use a configured job and a Tempo grant. Give each installed job a name. For example, after installing a fleet as `workers`:
+## Manage a local job
 
 ```sh
-glue status workers
-glue logs workers
-glue stop workers
-glue start workers
-glue uninstall workers
+glue list --json
+glue status NAME
+glue logs NAME
+glue stop NAME
+glue start NAME
+glue uninstall NAME
 ```
 
-Tempo owns spending authority and expiry. Glue handles the schedule, threshold checks and delivery. Stop or uninstall preserves the job's payment history; starting again does not renew a grant or reset its budget.
-
-Read the [operating guide](../operations.md) for recovery and renewal. Services we might build next live in [ideas](../ideas.md).
+Stop and uninstall preserve payment history and authority. Starting again does not renew a grant or reset its budget. Read the [operating guide](../operations.md) for expiry and recovery.

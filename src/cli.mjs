@@ -14,10 +14,10 @@ import { serviceCommand, serviceTick } from "./service.mjs";
 const runtime = ["rpc", "api", "state-dir"];
 const commands = {
   list: { usage: "list [--json]", flags: ["json"] },
-  services: { usage: "services [gas|ready|fleet|reserve|refuel] [--json]", flags: ["json"] },
+  services: { usage: "services [refill|refuel] [--json]", flags: ["json"] },
   init: {
     usage:
-      "init [gas|ready|fleet|reserve] --policy FILE --recipient ADDRESS --chain CHAIN --token TOKEN\n  --below-eth ETH --amount AMOUNT --min-receive-eth ETH\n  --max-spend AMOUNT --fee-reserve AMOUNT --duration 30m [--sender ADDRESS]",
+      "init refill --policy FILE --token TOKEN --amount AMOUNT --max-spend AMOUNT\n  --fee-reserve AMOUNT --duration 30m [MODE OPTIONS] [--sender ADDRESS]",
     flags: [
       "policy",
       "transactions",
@@ -194,24 +194,12 @@ async function main() {
     if (key !== "help" && !spec.flags.includes(key))
       throw new Error(`--${key} is not supported by ${command}.`);
   if (v.help) {
-    if (command === "init" && positionals[1] && positionals[1] !== "gas") {
-      const usage = {
-        ready: "--transactions FILE --recipient ADDRESS --chain CHAIN [--margin-bps 2000]",
-        fleet: "--wallets FILE",
-        reserve: "--receive-token TOKEN --target AMOUNT [--slippage-bps 50]",
-      }[positionals[1]];
-      if (!usage) throw new Error("Choose gas, ready, fleet or reserve.");
-      console.log(
-        `glue init ${positionals[1]} --policy FILE ${usage}\n  --token TOKEN --amount MAX_PER_ACTION --max-spend TOTAL --fee-reserve FEES --duration 30m\n\nSender defaults to Tempo Wallet. Preview with glue run --policy FILE.\nEnable with glue install NAME --policy FILE --accept-network-fees --approve.`,
-      );
-      return;
-    }
     console.log(`glue ${spec.usage}`);
     const extra = spec.flags.filter((flag) => !spec.usage.includes(`--${flag}`));
     if (extra.length) console.log(`Options: ${extra.map((flag) => "--" + flag).join(", ")}`);
     if (command === "init") {
       console.log(
-        "ready: --transactions FILE --recipient ADDRESS --chain CHAIN [--margin-bps 2000]\nfleet: --wallets FILE\nreserve: --receive-token TOKEN --target AMOUNT [--slippage-bps 50]\nAll services require --policy, --token, --amount, --max-spend, --fee-reserve, --duration. --amount caps each refill/swap; gas uses a fixed amount.",
+        "One wallet: --chain CHAIN --recipient ADDRESS --below-eth ETH --min-receive-eth ETH\nFleet: --wallets FILE\nPrepared work: --transactions FILE --chain CHAIN --recipient ADDRESS [--margin-bps 2000]\nTempo token: --chain tempo --receive-token TOKEN --target AMOUNT [--slippage-bps 50]\n\nThe mode is inferred from these options. --amount is fixed for one wallet and caps actions in the other modes.",
       );
       console.log(
         "Sender defaults to the connected Tempo mainnet wallet. Amounts and duration are required; interval defaults to 60s and cooldown to 300s.",
@@ -243,36 +231,38 @@ async function main() {
   if (command === "services") {
     const services = [
       {
-        id: "gas",
-        name: "Gas maintenance",
-        description: "Watch native ETH and refill below your threshold.",
+        id: "refill",
+        name: "Refill",
+        description:
+          "Maintain one wallet, a fleet, prepared work, or a Tempo payment-token balance.",
         runs: "local",
         chains: Object.keys(CHAINS),
         tokens: Object.keys(TOKENS),
-        docs: "https://github.com/figtracer/glue/blob/main/docs/services/gas.md",
-        command: "glue install NAME --policy FILE --accept-network-fees --approve",
+        modes: [
+          {
+            id: "wallet",
+            selector: "--chain CHAIN --recipient ADDRESS",
+            amount: "fixed source-token charge",
+          },
+          {
+            id: "fleet",
+            selector: "--wallets FILE",
+            amount: "maximum input per refill",
+          },
+          {
+            id: "prepared",
+            selector: "--transactions FILE --chain CHAIN --recipient ADDRESS",
+            amount: "maximum input per refill",
+          },
+          {
+            id: "tempo-token",
+            selector: "--chain tempo --receive-token TOKEN --target AMOUNT",
+            amount: "maximum input per swap",
+          },
+        ],
+        docs: "https://github.com/figtracer/glue/blob/main/docs/services/refill.md",
+        command: "glue init refill --help",
       },
-      ...[
-        [
-          "ready",
-          "Prepared transaction funding",
-          "Estimate a prepared job and fund its native shortfall.",
-        ],
-        ["fleet", "Agent wallet funding", "Keep active wallets funded under one shared budget."],
-        [
-          "reserve",
-          "Tempo token reserve",
-          "Swap only the missing amount of a Tempo payment token.",
-        ],
-      ].map(([id, name, description]) => ({
-        id,
-        name,
-        description,
-        runs: "local",
-        tokens: Object.keys(TOKENS),
-        docs: `https://github.com/figtracer/glue/blob/main/docs/services/${id}.md`,
-        command: `glue init ${id} --help`,
-      })),
       {
         id: "refuel",
         name: "On-demand refuel",
@@ -283,11 +273,11 @@ async function main() {
         website: "https://glue.figtracer.com",
       },
     ];
-    const selected = positionals[1]
-      ? services.filter((service) => service.id === positionals[1])
-      : services;
+    const aliases = new Set(["gas", "ready", "fleet", "reserve"]);
+    const filter = aliases.has(positionals[1]) ? "refill" : positionals[1];
+    const selected = filter ? services.filter((service) => service.id === filter) : services;
     if (positionals.length > 2 || !selected.length)
-      throw new Error("Use glue services [gas|ready|fleet|reserve|refuel] [--json].");
+      throw new Error("Use glue services [refill|refuel] [--json].");
     if (v.json) console.log(JSON.stringify(selected, null, 2));
     else {
       console.log("glue services — pay from Tempo with pathUSD or USDC.e\n");
@@ -344,11 +334,23 @@ async function main() {
     throw new Error(`Use glue ${spec.usage}`);
   const path = command === "init" ? resolve(v.policy) : await realpath(resolve(v.policy));
   if (command === "init") {
-    if (!v["fee-reserve"])
-      throw new Error("Choose an explicit --fee-reserve for Tempo network fees.");
-    const kind = positionals[1] ?? "gas";
-    if (!["gas", "ready", "fleet", "reserve"].includes(kind))
-      throw new Error("Choose gas, ready, fleet or reserve.");
+    const requested = positionals[1] ?? "gas";
+    if (!["refill", "gas", "ready", "fleet", "reserve"].includes(requested))
+      throw new Error("Choose refill.");
+    const selectors = [
+      v.wallets && "fleet",
+      v.transactions && "ready",
+      v.chain === "tempo" && "reserve",
+    ].filter(Boolean);
+    if (requested === "refill" && selectors.length > 1)
+      throw new Error("Choose one refill mode: wallet, fleet, prepared work, or Tempo token.");
+    // Legacy setup names remain accepted so old scripts can create the same policy shapes.
+    const kind =
+      requested === "refill"
+        ? (selectors[0] ?? "gas")
+        : requested === "gas" && v.chain === "tempo"
+          ? "reserve"
+          : requested;
     const serviceFlags = {
       gas: ["recipient", "chain", "below-eth", "min-receive-eth"],
       ready: ["recipient", "chain", "transactions", "margin-bps"],
@@ -356,10 +358,31 @@ async function main() {
       reserve: ["receive-token", "target", "slippage-bps"],
     };
     for (const flag of new Set(Object.values(serviceFlags).flat()))
-      if (v[flag] !== undefined && !serviceFlags[kind].includes(flag))
+      if (
+        v[flag] !== undefined &&
+        !serviceFlags[kind].includes(flag) &&
+        !(kind === "reserve" && flag === "chain")
+      )
         throw new Error(`--${flag} is not supported by init ${kind}.`);
-    if (kind === "ready" && !v.transactions) throw new Error("Supply --transactions FILE.");
-    if (kind === "fleet" && !v.wallets) throw new Error("Supply --wallets FILE.");
+    const required = [
+      "token",
+      "amount",
+      "max-spend",
+      "fee-reserve",
+      "duration",
+      ...{
+        gas: ["recipient", "chain", "below-eth", "min-receive-eth"],
+        ready: ["recipient", "chain", "transactions"],
+        fleet: ["wallets"],
+        reserve: ["receive-token", "target"],
+      }[kind],
+    ];
+    const missing = required.filter((flag) => !v[flag]);
+    if (missing.length) throw new Error(`Supply ${missing.map((flag) => `--${flag}`).join(", ")}.`);
+    if (kind === "reserve" && v.chain !== undefined && v.chain !== "tempo")
+      throw new Error(`Unsupported chain: ${v.chain}.`);
+    if (["gas", "ready"].includes(kind) && !Object.hasOwn(CHAINS, v.chain))
+      throw new Error(`Unsupported chain: ${v.chain}.`);
     const specifics =
       kind === "gas"
         ? {}
@@ -405,7 +428,10 @@ async function main() {
     });
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, JSON.stringify(config, null, 2) + "\n", { flag: "wx", mode: 0o600 });
-    console.log(`Policy created: ${path}\nNothing enabled. Run without --execute to preview.`);
+    const mode = { gas: "wallet", ready: "prepared", fleet: "fleet", reserve: "tempo-token" }[kind];
+    console.log(
+      `Policy created: ${path}\nMode: ${mode}\nNothing enabled. Run without --execute to preview.`,
+    );
     return;
   }
   const config = validate(JSON.parse(await readFile(path, "utf8")));

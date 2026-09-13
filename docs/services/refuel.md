@@ -10,6 +10,6 @@ Get gas for a wallet with one request. Pay from Tempo mainnet with pathUSD or US
 
 **With an agent:** give it [Glue's llms.txt](https://glue.figtracer.com/llms.txt). That is the source for supported MPP requests, payment handling and delivery tracking.
 
-This service runs through the website and API. No local scheduler is installed. To keep a wallet funded automatically, enable [gas maintenance](gas.md).
+This service runs through the website and API. No local scheduler is installed. To keep a wallet funded automatically, enable [refill](refill.md).
 
 [← Current services](README.md)
