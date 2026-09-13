@@ -18,6 +18,8 @@ All payments use your existing Tempo mainnet wallet. Gas services deliver native
 
 ## Local services
 
+`glue list` shows saved local jobs, including uninstalled jobs with receipts to reconcile. Add `--json` for agent use. It reads local state only; use `glue status NAME` for live authority, balances and scheduler status.
+
 Local services use a configured job and a Tempo grant. Give each installed job a name. For example, after installing a fleet as `workers`:
 
 ```sh

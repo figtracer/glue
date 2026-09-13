@@ -17,7 +17,7 @@ glue services
 glue services --json
 ```
 
-The catalog is bundled with the CLI. Browsing it needs no login and enables nothing.
+The catalog is bundled with the CLI. Browsing it needs no login and enables nothing. `glue list` finds your saved local jobs; `glue status NAME` checks a job’s live state.
 
 | Service                                         | What it does                                  | Use it                            |
 | ----------------------------------------------- | --------------------------------------------- | --------------------------------- |

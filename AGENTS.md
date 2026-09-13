@@ -4,7 +4,7 @@ Small funding services using your existing Tempo wallet. Start with `glue servic
 
 ## Before enabling
 
-- Read `glue status NAME --json` and `glue logs NAME`. Reuse an existing job and its state; do not install a second executor.
+- Run `glue list --json` to find saved jobs, then read `glue status NAME --json` and `glue logs NAME`. Reuse an existing job and its state; do not install a second executor.
 - Use the user's destination, token, threshold, refill amount, minimum output, budget, fee reserve and duration. Ask for missing spending choices. Examples are not authorization.
 - `init` can read the sender from an existing Tempo CLI login. `run` previews without paying; `authorize` previews the grant. `install NAME --policy FILE --accept-network-fees --approve` enables the service after Tempo approval.
 - Reuse approvals already given. Never enlarge or renew authority without authorization. Never request wallet secrets in chat.

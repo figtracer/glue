@@ -37,6 +37,40 @@ export async function serviceCommand(
     ioFactory = createIO,
   } = {},
 ) {
+  if (command === "list") {
+    const root = dirname(directory);
+    const entries = await readdir(root, { withFileTypes: true }).catch((error) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    const jobs = await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+        .map(async (entry) => {
+          const record = await readJson(join(root, entry.name, "service.json"));
+          if (!record) return null;
+          const item = {
+            name: entry.name,
+            installed: record.installed,
+            enabled: record.enabled,
+            policy: record.policy,
+            stateDirectory: record.stateDirectory,
+          };
+          try {
+            const { config, state } = await job(record);
+            return {
+              ...item,
+              service: config.service ?? "gas",
+              pending: state.pending?.key ?? null,
+              spent: state.spent,
+            };
+          } catch (error) {
+            return { ...item, error: error.message };
+          }
+        }),
+    );
+    return jobs.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  }
   const name = basename(directory);
   const definition = join(directory, "service.json");
   const logs = join(directory, "events.json");

@@ -13,6 +13,7 @@ import { serviceCommand, serviceTick } from "./service.mjs";
 
 const runtime = ["rpc", "api", "state-dir"];
 const commands = {
+  list: { usage: "list [--json]", flags: ["json"] },
   services: { usage: "services [gas|ready|fleet|reserve|refuel] [--json]", flags: ["json"] },
   init: {
     usage:
@@ -70,6 +71,7 @@ const commands = {
 const help = `glue — small services for agents using Tempo
 
 services  Browse services
+list      Find saved local jobs
 init      Configure a funding service
 authorize Preview or approve a Tempo grant
 install   Enable a local service
@@ -225,6 +227,19 @@ async function main() {
     throw new Error(
       "Installed status uses its saved settings; runtime overrides require --policy.",
     );
+  if (command === "list") {
+    if (positionals.length !== 1) throw new Error(`Use glue ${spec.usage}`);
+    const jobs = await serviceCommand("list");
+    if (v.json) console.log(JSON.stringify(jobs, null, 2));
+    else if (!jobs.length) console.log("No saved jobs. Use glue services to choose one.");
+    else
+      for (const job of jobs)
+        console.log(
+          `${job.name} · ${job.service ?? "unknown"} · ${job.installed ? (job.enabled ? "enabled" : "stopped") : "uninstalled"}${job.pending ? ` · pending ${job.pending}` : ""}${job.error ? ` · ${job.error}` : ""}`,
+        );
+    if (jobs.some((job) => job.error)) process.exitCode = 1;
+    return;
+  }
   if (command === "services") {
     const services = [
       {

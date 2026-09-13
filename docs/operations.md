@@ -4,7 +4,7 @@ Create a job with `glue init`; the [gas service page](services/gas.md#enable) ha
 
 ## Manage
 
-Follow the [gas setup](services/gas.md#enable) to install. `glue status` and `glue status --policy FILE` show concise text; add `--json` for full records (including the previous status fields), live balance and authority. Failed reads remain visible and return a nonzero exit code. `glue logs gas` returns the latest 100 events.
+Use `glue list --json` to find saved jobs before installing another. This reads local metadata and preserves visibility of uninstalled jobs with pending payments. Follow the [gas setup](services/gas.md#enable) to install. `glue status` and `glue status --policy FILE` show concise text; add `--json` for full records (including the previous status fields), live balance and authority. Failed reads remain visible and return a nonzero exit code. `glue logs gas` returns the latest 100 events.
 
 `stop gas` disables scheduling; `start gas` resumes the same job; `uninstall gas` removes scheduler files. All preserve payment history and authority. Revoke the dedicated key in Tempo Wallet to remove signing authority.
 
