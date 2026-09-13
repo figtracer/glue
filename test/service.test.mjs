@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serviceCommand, serviceTick } from "../src/service.mjs";
 import { atomicWrite, loadState } from "../src/io.mjs";
-import { TOKENS } from "../src/worker.mjs";
+import { initialState, policyHash, TOKENS } from "../src/worker.mjs";
 
 const config = {
   version: 2,
@@ -143,6 +143,75 @@ test("install, scheduled threshold refill, stop/start and uninstall preserve pay
   await serviceCommand("install", f.options, f.deps);
   assert.equal(f.approved(), 1);
   assert.equal((await loadState(f.stateDir)).spent, "50000");
+});
+
+test("list, retire and activate keep fleet membership and policy unchanged", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "glue-fleet-controls-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = join(root, "services", "workers");
+  const stateDir = join(root, "state");
+  const policy = join(root, "fleet.json");
+  const recipient = "0x2222222222222222222222222222222222222222";
+  const fleet = {
+    version: 3,
+    service: "fleet",
+    sender: "0x1111111111111111111111111111111111111111",
+    token: "pathusd",
+    amount: "0.05",
+    maxSpend: "0.15",
+    feeReserve: "0.01",
+    durationSeconds: 1800,
+    intervalSeconds: 30,
+    cooldownSeconds: 30,
+    wallets: [{ recipient, chain: "base", belowEth: "0.00002", active: true, priority: 1 }],
+  };
+  await atomicWrite(policy, fleet);
+  await mkdir(stateDir);
+  await mkdir(directory, { recursive: true });
+  await atomicWrite(join(stateDir, "state.json"), initialState(fleet));
+  await atomicWrite(join(directory, "service.json"), {
+    version: 1,
+    installed: true,
+    enabled: true,
+    policy,
+    policyHash: policyHash(fleet),
+    stateDirectory: stateDir,
+    intervalSeconds: 30,
+  });
+  const scheduler = {
+    manager: "test",
+    loaded: async () => true,
+    start: async () => {},
+    stop: async () => {},
+    remove: async () => {},
+    files: [],
+  };
+  const deps = { directory, scheduler };
+  const listed = await serviceCommand("list", {}, deps);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].name, "workers");
+  assert.equal(listed[0].service, "fleet");
+  assert.equal(
+    (await serviceCommand("retire", { recipient, chain: "base" }, deps)).status,
+    "retired",
+  );
+  assert.deepEqual((await loadState(stateDir)).retired, [`base:${recipient.toLowerCase()}`]);
+  assert.equal(
+    (await serviceCommand("activate", { recipient, chain: "base" }, deps)).status,
+    "active",
+  );
+  const state = await loadState(stateDir);
+  assert.deepEqual(state.retired, []);
+  assert.deepEqual(state.activated, [`base:${recipient.toLowerCase()}`]);
+  assert.deepEqual(JSON.parse(await readFile(policy, "utf8")), fleet);
+  await assert.rejects(
+    serviceCommand(
+      "retire",
+      { recipient: "0x3333333333333333333333333333333333333333", chain: "base" },
+      deps,
+    ),
+    /already configured/,
+  );
 });
 
 test("overlapping scheduled checks cannot submit twice; a restart reconciles the original order", async (t) => {

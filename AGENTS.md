@@ -1,6 +1,6 @@
 # Using glue
 
-Small funding services using your existing Tempo wallet. Start with `glue services --json`; choose [gas](docs/services/gas.md), [prepared funding](docs/services/ready.md), [fleet](docs/services/fleet.md), [token reserve](docs/services/reserve.md), or [MPP instructions](https://glue.figtracer.com/llms.txt). Use `glue COMMAND --help` for flags.
+Small funding services using the user's existing Tempo wallet. Start with `glue services --json`; choose local [refill](docs/services/refill.md) or the [MPP instructions](https://glue.figtracer.com/llms.txt) for an immediate refill. Use `glue COMMAND --help` for flags.
 
 ## Before enabling
 
@@ -23,10 +23,11 @@ Keep policy, state, credentials and receipts. Never delete state, edit the budge
 
 Follow [recovery](docs/operations.md#state-and-recovery) for interrupted approvals or stale locks. Development guidance lives in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Choosing a service
+## Choosing a refill mode
 
-- `ready`: prepare a transaction sequence, configure their deployer/chain, then stop the service when the work ends. Glue never submits the prepared work.
-- `fleet`: configure recipients, targets and priorities once. Use `retire NAME --recipient ADDRESS --chain CHAIN` or `activate` as workers finish/start. One grant and budget cover the fleet.
-- `reserve`: choose input/output Tempo tokens and a target wallet balance. Preview the exact-output swap; approve the DEX-specific grant to enable it.
+- One wallet: supply `--chain`, `--recipient`, `--below-eth` and `--min-receive-eth`.
+- Fleet: supply `--wallets FILE`. Use `retire NAME --recipient ADDRESS --chain CHAIN` or `activate` as workers finish or start. One grant and budget cover the fleet.
+- Prepared work: supply `--transactions FILE`, `--chain` and `--recipient`. Glue funds the estimated shortfall and never submits the prepared work. Stop the job when the work ends.
+- Tempo token: supply `--chain tempo`, `--receive-token` and `--target`. Glue swaps the shortfall and uses a DEX-specific grant.
 
-Use `glue init SERVICE --help`. Policies snapshot their input files; do not edit approved policies to change destinations, amounts or authority. Preserve pending state across restarts. A scheduled job needs an awake, online computer. Never claim guaranteed delivery time or cheaper execution than another provider without measurements.
+Use `glue init refill --help`. The options select the mode; do not combine mode selectors. Policies snapshot their input files, and saved jobs may still identify their internal kind as `gas`, `ready`, `fleet` or `reserve`. Do not edit approved policies to change destinations, amounts or authority. Preserve pending state across restarts. A scheduled job needs an awake, online computer. Never claim guaranteed delivery time or cheaper execution than another provider without measurements.

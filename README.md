@@ -6,7 +6,7 @@ small services for keeping your agents funded.
 
 [website](https://glue.figtracer.com) · [services](docs/services/README.md) · [agent instructions](AGENTS.md) · [getting started](#getting-started) · [operating guide](docs/operations.md) · [contributing](CONTRIBUTING.md) · [ideas](docs/ideas.md)
 
-Glue funds prepared work, keeps agent wallets topped up, and maintains payment tokens on Tempo. Use your existing Tempo wallet and a bounded passkey approval. The website handles one-off gas refills; the CLI runs local services.
+Glue keeps wallets ready using your existing Tempo wallet and a bounded passkey approval. One local `refill` service covers a wallet, a fleet, prepared work, or a Tempo payment-token balance. The website handles one-off gas refills.
 
 No Glue fees or markup. Network and provider costs apply. No model, database server or container runs your checks. This is an independent prototype, not an official Tempo feature.
 
@@ -19,13 +19,10 @@ glue services --json
 
 The catalog is bundled with the CLI. Browsing it needs no login and enables nothing. `glue list` finds your saved local jobs; `glue status NAME` checks a job’s live state.
 
-| Service                                         | What it does                                  | Use it                            |
-| ----------------------------------------------- | --------------------------------------------- | --------------------------------- |
-| [Gas maintenance](docs/services/gas.md)         | Watch native gas and refill below a threshold | Local service: `glue install gas` |
-| [Prepared funding](docs/services/ready.md)      | Fund the native shortfall for prepared work   | `glue init ready --help`          |
-| [Fleet funding](docs/services/fleet.md)         | Coordinate active wallets under one budget    | `glue init fleet --help`          |
-| [Tempo token reserve](docs/services/reserve.md) | Buy a missing payment token on Tempo          | `glue init reserve --help`        |
-| [On-demand refuel](docs/services/refuel.md)     | Get gas for a wallet when you need it         | Website or MPP request            |
+| Service                                     | What it does                                             | Use it                    |
+| ------------------------------------------- | -------------------------------------------------------- | ------------------------- |
+| [Refill](docs/services/refill.md)           | Maintain wallets, prepared work, or Tempo payment tokens | `glue init refill --help` |
+| [On-demand refuel](docs/services/refuel.md) | Get gas immediately through the website or MPP           | Website or MPP request    |
 
 [Browse current services →](docs/services/README.md)
 

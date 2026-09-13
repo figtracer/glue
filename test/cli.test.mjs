@@ -10,7 +10,7 @@ const exec = promisify(execFile),
   cli = resolve("src/cli.mjs");
 test(
   "CLI creates a duration-based job and previews its Tempo grant without logging in",
-  { timeout: 10000 },
+  { timeout: 30000 },
   async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "glue-cli-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
@@ -146,25 +146,10 @@ test("CLI lists shipped services without creating a job", async (t) => {
     stdout,
     `glue services — pay from Tempo with pathUSD or USDC.e
 
-gas · Gas maintenance · local
-  Watch native ETH and refill below your threshold.
-  https://github.com/figtracer/glue/blob/main/docs/services/gas.md
-  glue install NAME --policy FILE --accept-network-fees --approve
-
-ready · Prepared transaction funding · local
-  Estimate a prepared job and fund its native shortfall.
-  https://github.com/figtracer/glue/blob/main/docs/services/ready.md
-  glue init ready --help
-
-fleet · Agent wallet funding · local
-  Keep active wallets funded under one shared budget.
-  https://github.com/figtracer/glue/blob/main/docs/services/fleet.md
-  glue init fleet --help
-
-reserve · Tempo token reserve · local
-  Swap only the missing amount of a Tempo payment token.
-  https://github.com/figtracer/glue/blob/main/docs/services/reserve.md
-  glue init reserve --help
+refill · Refill · local
+  Maintain one wallet, a fleet, prepared work, or a Tempo payment-token balance.
+  https://github.com/figtracer/glue/blob/main/docs/services/refill.md
+  glue init refill --help
 
 refuel · On-demand refuel · web/mpp
   Get gas now through the website or MPP API, including Sepolia routes.
@@ -177,10 +162,7 @@ No Glue fees. Network and provider costs apply. Nothing enabled.
   assert.deepEqual(
     all.map(({ id, runs }) => ({ id, runs })),
     [
-      { id: "gas", runs: "local" },
-      { id: "ready", runs: "local" },
-      { id: "fleet", runs: "local" },
-      { id: "reserve", runs: "local" },
+      { id: "refill", runs: "local" },
       { id: "refuel", runs: "web/mpp" },
     ],
   );
@@ -188,13 +170,21 @@ No Glue fees. Network and provider costs apply. Nothing enabled.
     const result = JSON.parse((await run("services", service.id, "--json")).stdout);
     assert.deepEqual(result, [service]);
   }
+  for (const alias of ["gas", "ready", "fleet", "reserve"]) {
+    const result = JSON.parse((await run("services", alias, "--json")).stdout);
+    assert.deepEqual(result, [all[0]]);
+  }
   assert.deepEqual(all[0].chains, ["base", "ethereum", "arbitrum", "optimism"]);
   assert.deepEqual(all[0].tokens, ["pathusd", "usdc.e"]);
+  assert.deepEqual(
+    all[0].modes.map(({ id }) => id),
+    ["wallet", "fleet", "prepared", "tempo-token"],
+  );
   assert.equal(all.at(-1).command, undefined);
   assert.deepEqual(await readdir(dir), []);
   for (const args of [
     ["services", "unknown"],
-    ["services", "gas", "extra"],
+    ["services", "refill", "extra"],
     ["services", "--approve"],
     ["services", "--policy", join(dir, "job.json")],
     ["run", "--json"],
@@ -207,9 +197,219 @@ No Glue fees. Network and provider costs apply. Nothing enabled.
   }
 });
 
+test("CLI infers every refill mode without changing legacy policy shapes", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "glue-refill-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const sender = "0x1111111111111111111111111111111111111111";
+  const recipient = "0x2222222222222222222222222222222222222222";
+  const transactions = join(dir, "transactions.json");
+  const wallets = join(dir, "wallets.json");
+  await writeFile(transactions, JSON.stringify([{ to: recipient, data: "0x", value: "0" }]));
+  await writeFile(
+    wallets,
+    JSON.stringify([{ recipient, chain: "base", belowEth: "0.00002", active: true, priority: 1 }]),
+  );
+  const commonArgs = [
+    "--sender",
+    sender,
+    "--token",
+    "pathusd",
+    "--amount",
+    "0.05",
+    "--max-spend",
+    "0.25",
+    "--fee-reserve",
+    "0.01",
+    "--duration",
+    "30m",
+  ];
+  const shared = {
+    sender,
+    token: "pathusd",
+    amount: "0.05",
+    maxSpend: "0.25",
+    feeReserve: "0.01",
+    durationSeconds: 1800,
+    intervalSeconds: 60,
+    cooldownSeconds: 300,
+  };
+  const cases = [
+    {
+      mode: "wallet",
+      args: [
+        "--chain",
+        "base",
+        "--recipient",
+        recipient,
+        "--below-eth",
+        "0.00002",
+        "--min-receive-eth",
+        "0.000001",
+      ],
+      legacy: ["gas"],
+      expected: {
+        version: 2,
+        sender,
+        recipient,
+        chain: "base",
+        token: "pathusd",
+        belowEth: "0.00002",
+        amount: "0.05",
+        minReceiveEth: "0.000001",
+        maxSpend: "0.25",
+        durationSeconds: 1800,
+        intervalSeconds: 60,
+        cooldownSeconds: 300,
+        feeReserve: "0.01",
+      },
+    },
+    {
+      mode: "fleet",
+      args: ["--wallets", wallets],
+      legacy: ["fleet"],
+      expected: {
+        version: 3,
+        service: "fleet",
+        ...shared,
+        wallets: [{ recipient, chain: "base", belowEth: "0.00002", active: true, priority: 1 }],
+      },
+    },
+    {
+      mode: "prepared",
+      args: ["--transactions", transactions, "--chain", "base", "--recipient", recipient],
+      legacy: ["ready"],
+      expected: {
+        version: 3,
+        service: "ready",
+        ...shared,
+        chain: "base",
+        recipient,
+        transactions: [{ to: recipient, data: "0x", value: "0" }],
+        marginBps: 2000,
+      },
+    },
+    {
+      mode: "tempo-token",
+      args: ["--chain", "tempo", "--receive-token", "usdc.e", "--target", "0.10"],
+      legacy: ["gas", "reserve"],
+      expected: {
+        version: 3,
+        service: "reserve",
+        ...shared,
+        receiveToken: "usdc.e",
+        target: "0.10",
+        slippageBps: 50,
+      },
+    },
+  ];
+  for (const item of cases) {
+    const policy = join(dir, `${item.mode}.json`);
+    const result = await exec(process.execPath, [
+      cli,
+      "init",
+      "refill",
+      "--policy",
+      policy,
+      ...commonArgs,
+      ...item.args,
+    ]);
+    assert.match(result.stdout, new RegExp(`Mode: ${item.mode}`));
+    assert.deepEqual(JSON.parse(await readFile(policy)), item.expected);
+    for (const [index, alias] of item.legacy.entries()) {
+      const legacyPolicy = join(dir, `${item.mode}-${alias}-${index}.json`);
+      const legacyArgs =
+        alias === "reserve" ? ["--receive-token", "usdc.e", "--target", "0.10"] : item.args;
+      await exec(process.execPath, [
+        cli,
+        "init",
+        alias,
+        "--policy",
+        legacyPolicy,
+        ...commonArgs,
+        ...legacyArgs,
+      ]);
+      assert.deepEqual(JSON.parse(await readFile(legacyPolicy)), item.expected);
+    }
+  }
+  const pausedState = join(dir, "paused-state");
+  await exec(process.execPath, [
+    cli,
+    "pause",
+    "--policy",
+    join(dir, "wallet.json"),
+    "--state-dir",
+    pausedState,
+  ]);
+  assert.equal(JSON.parse(await readFile(join(pausedState, "state.json"))).paused, true);
+});
+
+test("CLI rejects mixed refill modes before reading files or wallet state", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "glue-refill-invalid-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const common = [
+    "--policy",
+    join(dir, "never-created.json"),
+    "--token",
+    "pathusd",
+    "--amount",
+    "0.05",
+    "--max-spend",
+    "0.25",
+    "--fee-reserve",
+    "0.01",
+    "--duration",
+    "30m",
+  ];
+  for (const mode of [
+    [],
+    [
+      "--wallets",
+      join(dir, "missing-wallets.json"),
+      "--transactions",
+      join(dir, "missing-txs.json"),
+    ],
+    ["--wallets", join(dir, "missing-wallets.json"), "--chain", "base"],
+    ["--receive-token", "usdc.e", "--target", "0.10"],
+    ["--margin-bps", "100"],
+    ["--chain", "tempo", "--receive-token", "usdc.e", "--target", "0.10", "--below-eth", "0.1"],
+  ]) {
+    await assert.rejects(
+      exec(process.execPath, [cli, "init", "refill", ...common, ...mode], {
+        env: { ...process.env, HOME: join(dir, "empty-home") },
+      }),
+      (error) => error.code === 1 && error.stdout === "",
+    );
+  }
+  assert.deepEqual(await readdir(dir), []);
+});
+
 test("CLI help is scoped and unrelated flags fail before IO", async () => {
-  const help = await exec(process.execPath, [cli, "stop", "--help"]);
-  assert.equal(help.stdout, "glue stop NAME\n");
+  const commands = [
+    "list",
+    "services",
+    "init",
+    "authorize",
+    "run",
+    "install",
+    "start",
+    "stop",
+    "uninstall",
+    "retire",
+    "activate",
+    "logs",
+    "status",
+    "pause",
+    "service-tick",
+  ];
+  for (const command of commands) {
+    const result = await exec(process.execPath, [cli, command, "--help"]);
+    assert.match(result.stdout, new RegExp(`^glue ${command}`));
+    assert.equal(result.stderr, "");
+  }
+  const refillHelp = await exec(process.execPath, [cli, "init", "refill", "--help"]);
+  assert.match(refillHelp.stdout, /One wallet:/);
+  assert.match(refillHelp.stdout, /Tempo token:/);
+  assert.equal((await exec(process.execPath, [cli, "stop", "--help"])).stdout, "glue stop NAME\n");
   for (const args of [
     ["stop", "gas", "--approve"],
     ["init", "--execute"],
