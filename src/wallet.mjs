@@ -7,6 +7,13 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { TOKENS, units } from "./worker.mjs";
 
+export function serializeStorageWrites(storage) {
+  let write = Promise.resolve();
+  const setItem = storage.setItem.bind(storage);
+  storage.setItem = (...args) => (write = write.then(() => setItem(...args)));
+  return () => write;
+}
+
 export function checkChallenge(config, pending, challenge) {
   const request = challenge.request;
   if (
@@ -23,12 +30,7 @@ export function checkChallenge(config, pending, challenge) {
 
 export function createWallet(config, directory) {
   const storage = Storage.filesystem({ path: join(directory, "tempo-wallet.json"), key: "glue" });
-  let write = Promise.resolve();
-  const setItem = storage.setItem.bind(storage);
-  storage.setItem = (...args) => {
-    write = setItem(...args);
-    return write;
-  };
+  const flushStorage = serializeStorageWrites(storage);
   const provider = Provider.create({
     chains: [chain],
     name: "glue",
@@ -186,7 +188,7 @@ export function createWallet(config, directory) {
           },
         ],
       });
-      await write;
+      await flushStorage();
     },
     async authority(key) {
       await hydrate();
@@ -288,7 +290,7 @@ export function createWallet(config, directory) {
       const prepared = await payment.preparePayment(response);
       checkChallenge(config, pending, prepared.challenge);
       const credential = await prepared.createCredential();
-      await write;
+      await flushStorage();
       return credential;
     },
   };
