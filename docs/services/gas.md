@@ -53,6 +53,6 @@ The refill buys a fixed source-token amount of gas; it does not target an exact 
 
 `glue status` shows balance, remaining Tempo allowance, expiry and pending delivery. Add `--json` for the full record. `glue logs gas` shows recent events.
 
-Use `glue stop gas`, `glue start gas` or `glue uninstall gas`. These preserve payment history and never renew authority. One local service can be installed; keep the computer awake and online.
+Use `glue stop gas`, `glue start gas` or `glue uninstall gas`. These preserve payment history and never renew authority. Use distinct names for separate jobs; keep one funding owner per wallet and chain. The computer must stay awake and online.
 
 See [operations](../operations.md) for recovery and foreground execution.

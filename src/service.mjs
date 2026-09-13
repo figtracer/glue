@@ -1,6 +1,6 @@
-import { access, readFile, realpath } from "node:fs/promises";
+import { access, readFile, realpath, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { authorize } from "./authorization.mjs";
 import { atomicWrite, createIO, inspectJob, loadState, lock, stateDirectory } from "./io.mjs";
 import { createScheduler } from "./scheduler.mjs";
@@ -32,20 +32,21 @@ export async function serviceCommand(
   command,
   options = {},
   {
-    directory = SERVICE_DIRECTORY,
-    scheduler = createScheduler(directory),
+    directory = options.name ? join(dirname(SERVICE_DIRECTORY), options.name) : SERVICE_DIRECTORY,
+    scheduler = createScheduler(directory, { label: `com.figtracer.glue.${basename(directory)}` }),
     ioFactory = createIO,
   } = {},
 ) {
+  const name = basename(directory);
   const definition = join(directory, "service.json");
   const logs = join(directory, "events.json");
   let record = await readJson(definition);
   if (command === "logs") return readJson(logs, []);
   if (command === "status") {
-    if (!record) return { service: "gas", installed: false };
+    if (!record) return { service: name, installed: false };
     const events = await readJson(logs, []);
     const status = {
-      service: "gas",
+      service: name,
       ...record,
       manager: scheduler.manager,
       scheduled: await scheduler.loaded(),
@@ -53,15 +54,18 @@ export async function serviceCommand(
     };
     try {
       const { config, state } = await job(record);
-      status.job = {
-        chain: config.chain,
-        recipient: config.recipient,
-        token: config.token,
-        belowEth: config.belowEth,
-        amount: config.amount,
-        maxSpend: config.maxSpend,
-        feeReserve: config.feeReserve,
-      };
+      status.job =
+        config.version === 3
+          ? config
+          : {
+              chain: config.chain,
+              recipient: config.recipient,
+              token: config.token,
+              belowEth: config.belowEth,
+              amount: config.amount,
+              maxSpend: config.maxSpend,
+              feeReserve: config.feeReserve,
+            };
       status.spent = state.spent;
       status.pending = state.pending?.key ?? null;
       status.paused = state.paused;
@@ -77,10 +81,50 @@ export async function serviceCommand(
   }
   // Service control is separate from the payment lock so stop can interrupt a running check.
   const unlock = await lock(directory);
+  let unlockRegistry;
   try {
+    // Serialize registrations across names so concurrent installs cannot claim
+    // the same wallet before either service record has been written.
+    if (["install", "start"].includes(command))
+      unlockRegistry = await lock(join(dirname(directory), ".registry"));
     record = await readJson(definition);
+    if (["retire", "activate"].includes(command)) {
+      if (!record?.installed) throw new Error("Install a fleet job first.");
+      const release = await lock(record.stateDirectory);
+      try {
+        const { config, state } = await job(record);
+        const id = `${options.chain}:${options.recipient?.toLowerCase()}`;
+        if (
+          config.service !== "fleet" ||
+          !config.wallets.some(
+            (wallet) => `${wallet.chain}:${wallet.recipient.toLowerCase()}` === id,
+          )
+        )
+          throw new Error("Choose a wallet already configured in this fleet.");
+        const retired = new Set(state.retired ?? []),
+          activated = new Set(state.activated ?? []);
+        if (command === "retire") {
+          retired.add(id);
+          activated.delete(id);
+        } else {
+          retired.delete(id);
+          activated.add(id);
+        }
+        state.retired = [...retired];
+        state.activated = [...activated];
+        await atomicWrite(join(record.stateDirectory, "state.json"), state);
+        return {
+          service: name,
+          status: command === "retire" ? "retired" : "active",
+          wallet: id,
+          pending: state.pending?.key ?? null,
+        };
+      } finally {
+        await release();
+      }
+    }
     if (["stop", "uninstall"].includes(command)) {
-      if (!record || !record.installed) return { service: "gas", status: "not_installed" };
+      if (!record || !record.installed) return { service: name, status: "not_installed" };
       record.enabled = false;
       await atomicWrite(definition, record);
       await scheduler.stop();
@@ -90,14 +134,14 @@ export async function serviceCommand(
         await atomicWrite(definition, record);
       }
       return {
-        service: "gas",
+        service: name,
         status: command === "stop" ? "stopped" : "uninstalled",
         stateDirectory: record.stateDirectory,
       };
     }
     if (!["install", "start"].includes(command)) throw new Error("Unknown service command.");
     if (command === "start") {
-      if (!record?.installed) throw new Error("Install gas first.");
+      if (!record?.installed) throw new Error("Install this service first.");
       options = { ...record, "state-dir": record.stateDirectory };
     } else if (!options["accept-network-fees"]) {
       throw new Error(
@@ -105,10 +149,31 @@ export async function serviceCommand(
       );
     }
     if (!options.policy)
-      throw new Error("Use glue install gas --policy FILE --accept-network-fees [--approve].");
+      throw new Error("Use glue install NAME --policy FILE --accept-network-fees [--approve].");
     const policy = await realpath(options.policy);
     const config = validate(await readJson(policy));
     const stateDir = stateDirectory(policy, options["state-dir"]);
+    // Different timer names must never register the same payment state twice.
+    for (const sibling of await readdir(dirname(directory), { withFileTypes: true })) {
+      if (!sibling.isDirectory() || sibling.name === name) continue;
+      const other = await readJson(join(dirname(directory), sibling.name, "service.json"));
+      if (!other) continue;
+      const previous = await job(other);
+      // Uninstalling a timer does not cancel an already submitted payment.
+      if (other.installed || previous.state.pending?.phase === "submitting") {
+        if (other.stateDirectory === stateDir)
+          throw new Error(`This job belongs to ${sibling.name}. Reuse or reconcile that service.`);
+        const targets = (cfg) =>
+          (cfg.wallets ?? [cfg])
+            .filter((item) => item.recipient)
+            .map((item) => `${item.chain}:${item.recipient.toLowerCase()}`);
+        if (targets(config).some((target) => targets(previous.config).includes(target)))
+          throw new Error(
+            `Wallet funding overlaps installed service ${sibling.name}. Keep one funding owner per wallet and chain.`,
+          );
+      }
+    }
+
     const next = {
       version: 1,
       policy,
@@ -125,7 +190,7 @@ export async function serviceCommand(
       );
     if (different) {
       if (record.installed || (await scheduler.loaded()))
-        throw new Error("Uninstall the existing gas service before choosing another job.");
+        throw new Error("Uninstall the existing service before choosing another job.");
       const previous = await job(record);
       if (previous.state.pending?.phase === "submitting")
         throw new Error("Reconcile the previous payment before replacing the service.");
@@ -153,7 +218,7 @@ export async function serviceCommand(
     try {
       const state = (await loadState(stateDir)) ?? initialState(config);
       validateState(config, state);
-      if (config.version !== 2)
+      if (config.version < 2)
         throw new Error(
           "Local services require a native Tempo grant; create a job with --duration.",
         );
@@ -178,7 +243,7 @@ export async function serviceCommand(
       throw error;
     }
     return {
-      service: "gas",
+      service: name,
       status: "scheduled",
       manager: scheduler.manager,
       intervalSeconds: config.intervalSeconds,
@@ -186,6 +251,7 @@ export async function serviceCommand(
       stateDirectory: stateDir,
     };
   } finally {
+    await unlockRegistry?.();
     await unlock();
   }
 }

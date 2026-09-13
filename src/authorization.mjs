@@ -24,7 +24,7 @@ export function checkGrant(config, approval, grant, now) {
 
 export async function authorize(config, state, io, { approve = false } = {}) {
   validateState(config, state);
-  if (config.version !== 2)
+  if (config.version < 2)
     throw new Error(
       "Legacy policies can reconcile payments. Create a new job with --duration for Tempo authorization.",
     );
@@ -32,7 +32,8 @@ export async function authorize(config, state, io, { approve = false } = {}) {
     throw new Error("Reconcile the pending payment first.");
   if (state.paused) throw new Error("Policy is paused.");
   const remaining = units(config.maxSpend, 6) - BigInt(state.spent);
-  if (remaining < units(config.amount, 6)) throw new Error("Policy budget exhausted.");
+  if (config.version === 3 ? remaining <= 0n : remaining < units(config.amount, 6))
+    throw new Error("Policy budget exhausted.");
   if (!state.authorization) {
     if (!config.feeReserve)
       throw new Error(

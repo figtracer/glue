@@ -12,18 +12,17 @@ Tempo Wallet passkeys approve a dedicated key through the official Accounts SDK.
 
 See the [operating guide](operations.md) for the implemented workflow. The ideas below are candidates, not available commands.
 
-## Useful services next
+## Next candidates
 
-| Service                | Behavior                                                                 |
-| ---------------------- | ------------------------------------------------------------------------ |
-| Transaction readiness  | Estimate a prepared transaction and fund its gas shortfall               |
-| Deployment readiness   | Check deployer wallets and confirm funding before a release              |
-| Agent allowance        | Fund an agent wallet from a Tempo treasury within an approved cap        |
-| Payment reconciliation | Gather outstanding payments, deliveries and refunds into a digest        |
-| Approval expiry        | Notify when authority needs attention, without renewing it automatically |
-| Scheduled MPP request  | Run a specific service request with fixed input and cost bounds          |
+| Service | Behavior |
+| ------- | -------- |
 
-Deployment readiness is a natural Foundry-oriented experiment. More services should earn their place through real usage; we do not need a generic plugin runtime yet.
+| Agent allowance | Fund an agent wallet from a Tempo treasury within an approved cap |
+| Payment reconciliation | Gather outstanding payments, deliveries and refunds into a digest |
+| Approval expiry | Notify when authority needs attention, without renewing it automatically |
+| Scheduled MPP request | Run a specific service request with fixed input and cost bounds |
+
+Prepared funding, fleet funding and Tempo token reserves now have implementations; see the [service catalog](services/README.md) for their setup and limits. More services should earn their place through real usage; we do not need a generic plugin runtime yet.
 
 Installing the CLI alone starts nothing. Enabling a paid service requires its configuration and Tempo authority. An agent can propose the job; deterministic code decides whether a payment is allowed.
 
