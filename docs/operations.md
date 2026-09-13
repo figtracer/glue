@@ -29,6 +29,8 @@ Source amounts use the selected token's six decimals; ETH amounts use 18. Durati
 
 A 0.05 refill budget plus a 0.01 reserve requests a 0.06 Tempo allowance. Tempo counts transfers and network fees against that combined limit, including fees from reverted transactions. The reserve is headroom, not a fee quote or a separate onchain bucket. Fees can consume the remaining allowance and stop refills early. `--accept-network-fees` acknowledges their additional cost.
 
+Gas refills reserve 0.01 of the requested amount for direct source execution and recovery; unused funds return less refund fees. This is inside the MPP charge, separate from `--fee-reserve`, which covers the paying wallet's network fees. Old deposit-address orders retain their original route and receipts.
+
 Your Tempo passkey approves a dedicated key limited to the selected source token. Gas services authorize transfer methods; token reserves authorize DEX approval and exact-output swaps. The official Accounts SDK stores it privately in the job's state directory. Glue reads the signed grant before publication and the Tempo keychain once published. Tempo is the sole expiry authority; Glue never extends that expiry in the background.
 
 The destination, threshold and routing checks are Glue's job logic. They are not onchain permissions. Budget is reserved durably before a payment can be submitted; refunds do not automatically replenish it.
