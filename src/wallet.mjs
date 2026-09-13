@@ -4,6 +4,7 @@ import { tempo as chain } from "viem/chains";
 import { Actions, Addresses, Abis } from "viem/tempo";
 import { Mppx, tempo } from "mppx/client";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { TOKENS, units } from "./worker.mjs";
 
 export function checkChallenge(config, pending, challenge) {
@@ -35,6 +36,18 @@ export function createWallet(config, directory) {
     storage,
     mpp: false,
     timeout: 16 * 60 * 1000,
+    open(url, prompt) {
+      process.stdout.write(`Approve in Tempo Wallet: ${url}\nCode: ${prompt.userCode}\n`);
+      const [command, ...args] =
+        process.platform === "darwin"
+          ? ["open", url]
+          : process.platform === "win32"
+            ? ["cmd", "/c", "start", "", url]
+            : ["xdg-open", url];
+      const child = spawn(command, args, { detached: true, stdio: "ignore" });
+      child.on("error", () => process.stderr.write("Open the approval link above manually.\n"));
+      child.unref();
+    },
   });
   const client = createPublicClient({
     chain,
