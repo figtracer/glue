@@ -93,7 +93,7 @@ export function createScheduler(
         await atomicWriteText(
           service,
           `[Unit]
-Description=Glue gas balance check and refill
+Description=Glue funding service
 
 [Service]
 Type=oneshot
@@ -106,7 +106,7 @@ TimeoutStopSec=45s
         await atomicWriteText(
           timer,
           `[Unit]
-Description=Check gas with Glue
+Description=Run Glue funding checks
 
 [Timer]
 OnActiveSec=1s

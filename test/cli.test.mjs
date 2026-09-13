@@ -149,7 +149,22 @@ test("CLI lists shipped services without creating a job", async (t) => {
 gas · Gas maintenance · local
   Watch native ETH and refill below your threshold.
   https://github.com/figtracer/glue/blob/main/docs/services/gas.md
-  glue install gas --policy FILE --accept-network-fees --approve
+  glue install NAME --policy FILE --accept-network-fees --approve
+
+ready · Prepared transaction funding · local
+  Estimate a prepared job and fund its native shortfall.
+  https://github.com/figtracer/glue/blob/main/docs/services/ready.md
+  glue init ready --help
+
+fleet · Agent wallet funding · local
+  Keep active wallets funded under one shared budget.
+  https://github.com/figtracer/glue/blob/main/docs/services/fleet.md
+  glue init fleet --help
+
+reserve · Tempo token reserve · local
+  Swap only the missing amount of a Tempo payment token.
+  https://github.com/figtracer/glue/blob/main/docs/services/reserve.md
+  glue init reserve --help
 
 refuel · On-demand refuel · web/mpp
   Get gas now through the website or MPP API, including Sepolia routes.
@@ -163,6 +178,9 @@ No Glue fees. Network and provider costs apply. Nothing enabled.
     all.map(({ id, runs }) => ({ id, runs })),
     [
       { id: "gas", runs: "local" },
+      { id: "ready", runs: "local" },
+      { id: "fleet", runs: "local" },
+      { id: "reserve", runs: "local" },
       { id: "refuel", runs: "web/mpp" },
     ],
   );
@@ -172,7 +190,7 @@ No Glue fees. Network and provider costs apply. Nothing enabled.
   }
   assert.deepEqual(all[0].chains, ["base", "ethereum", "arbitrum", "optimism"]);
   assert.deepEqual(all[0].tokens, ["pathusd", "usdc.e"]);
-  assert.equal(all[1].command, undefined);
+  assert.equal(all.at(-1).command, undefined);
   assert.deepEqual(await readdir(dir), []);
   for (const args of [
     ["services", "unknown"],
@@ -191,7 +209,7 @@ No Glue fees. Network and provider costs apply. Nothing enabled.
 
 test("CLI help is scoped and unrelated flags fail before IO", async () => {
   const help = await exec(process.execPath, [cli, "stop", "--help"]);
-  assert.equal(help.stdout, "glue stop gas\n");
+  assert.equal(help.stdout, "glue stop NAME\n");
   for (const args of [
     ["stop", "gas", "--approve"],
     ["init", "--execute"],

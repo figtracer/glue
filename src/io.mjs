@@ -95,14 +95,17 @@ async function jsonFetch(url, options = {}) {
 }
 
 export function createIO(config, directory, options = {}, wallet) {
+  const authorityConfig = options.authorityConfig ?? config;
   // Balance checks and receipt recovery do not need a signing provider.
   let walletPromise;
   const getWallet = () =>
     (walletPromise ??= wallet
       ? Promise.resolve(wallet)
-      : import("./wallet.mjs").then(({ createWallet }) => createWallet(config, directory)));
+      : import("./wallet.mjs").then(({ createWallet }) =>
+          createWallet(authorityConfig, directory),
+        ));
   const api = safeUrl(options.api ?? "https://glue.figtracer.com");
-  const rpc = safeUrl(options.rpc ?? DEFAULT_RPC[config.chain]);
+  const rpc = safeUrl(options.rpc ?? DEFAULT_RPC[config.chain] ?? DEFAULT_RPC.base);
   async function chainCall(method, params) {
     const reply = await jsonFetch(rpc, {
       signal: options.signal,
@@ -116,20 +119,25 @@ export function createIO(config, directory, options = {}, wallet) {
   }
   let authorizedUntil = 0;
   let approvedKey;
-  async function verifyWallet() {
+  async function verifyWallet(amount = config.version === 3 ? "0" : config.amount) {
     const state = await loadState(directory);
     if (state?.authorization?.phase !== "active")
       throw new Error("Run glue authorize --policy FILE --approve first.");
     approvedKey = state.authorization.key;
     const grant = await (await getWallet()).authority(approvedKey);
-    authorizedUntil = checkGrant(config, state.authorization, grant, Date.now());
-    if (BigInt(grant.limit) <= units(config.amount, 6))
+    authorizedUntil = checkGrant(authorityConfig, state.authorization, grant, Date.now());
+    if (BigInt(grant.limit) <= units(amount, 6))
       throw new Error(
         "Tempo allowance cannot cover the refill plus network fees. No payment attempted.",
       );
     return authorizedUntil;
   }
   return {
+    directory,
+    config,
+    options,
+    wallet: getWallet,
+    forConfig: (next) => createIO(next, directory, { ...options, authorityConfig }, wallet),
     connect: async (approval) => (await getWallet()).connect(approval),
     authority: async (key) => (await getWallet()).authority(key),
     describe: (value) => console.log(JSON.stringify(value)),
@@ -195,12 +203,19 @@ export function createIO(config, directory, options = {}, wallet) {
 // Read balance and authority independently so one unavailable provider does not hide the other.
 export async function inspectJob(state, io) {
   const [balance, authority] = await Promise.allSettled([
-    io.balance(),
+    io.config?.version === 3
+      ? import("./funding.mjs").then(({ fundingBalances }) => fundingBalances(io.config, io, state))
+      : io.balance(),
     state?.authorization?.phase === "active" ? io.authority(state.authorization.key) : null,
   ]);
   const grant = authority.status === "fulfilled" ? authority.value : null;
   return {
-    balance: balance.status === "fulfilled" ? balance.value.toString() : null,
+    balance:
+      balance.status === "fulfilled"
+        ? Array.isArray(balance.value)
+          ? balance.value
+          : balance.value.toString()
+        : null,
     authority: grant
       ? {
           ...grant,

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { validateFunding, fundingTick } from "./funding.mjs";
 
 export const TOKENS = {
   pathusd: "0x20c0000000000000000000000000000000000000",
@@ -21,6 +22,7 @@ export function units(value, decimals) {
 }
 
 export function validate(config) {
+  if (config?.version === 3) return validateFunding(config);
   const fields = [
     "version",
     "sender",
@@ -145,6 +147,11 @@ function validateOffer(config, pending, reply, now) {
 // Persist before invoking the paying CLI. An uncertain submission is never paid again.
 export async function tick(config, state, io, { execute = false } = {}) {
   validateState(config, state);
+  if (config.version === 3) return fundingTick(config, state, io, { execute });
+  return gasTick(config, state, io, { execute });
+}
+
+export async function gasTick(config, state, io, { execute = false } = {}) {
   const now = io.now();
   if (state.pending?.phase === "submitting") {
     const reply = await io.order(state.pending);

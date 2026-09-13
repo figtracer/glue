@@ -1,10 +1,10 @@
 # Running glue
 
-Create a job with `glue init`; the [gas service page](services/gas.md#enable) has a Base example. Install one local `gas` service, or run the same worker in the foreground. Use one scheduler and one persistent state directory per job.
+Create a job with `glue init`; the [gas service page](services/gas.md#enable) has a Base example. Install named local services, or run the same worker in the foreground. Use one scheduler and one persistent state directory per job.
 
 ## Manage
 
-Follow the [gas setup](services/gas.md#enable) to install. `glue status` and `glue status --policy FILE` show concise text; add `--json` for full records (including the previous status fields), live balance and authority. Failed reads remain visible and return a nonzero exit code. `glue logs gas` returns the latest 100 events.
+Use `glue list --json` to find saved jobs before installing another. This reads local metadata and preserves visibility of uninstalled jobs with pending payments. Follow the [gas setup](services/gas.md#enable) to install. `glue status` and `glue status --policy FILE` show concise text; add `--json` for full records (including the previous status fields), live balance and authority. Failed reads remain visible and return a nonzero exit code. `glue logs gas` returns the latest 100 events.
 
 `stop gas` disables scheduling; `start gas` resumes the same job; `uninstall gas` removes scheduler files. All preserve payment history and authority. Revoke the dedicated key in Tempo Wallet to remove signing authority.
 
@@ -17,9 +17,9 @@ Commands reject unrelated flags. Use `glue COMMAND --help`; installed status use
 | Init option          | Meaning                                                            |
 | -------------------- | ------------------------------------------------------------------ |
 | `--below-eth`        | Native ETH balance that triggers a refill                          |
-| `--amount`           | Source-token charge per refill                                     |
+| `--amount`           | Fixed gas refill charge; maximum input for ready/fleet/reserve     |
 | `--min-receive-eth`  | Minimum acceptable ETH delivery in the quote                       |
-| `--max-spend`        | Cumulative MPP charge budget, excluding source network fees        |
+| `--max-spend`        | Cumulative input budget, excluding source network fees             |
 | `--fee-reserve`      | Extra token allowance requested for network fees                   |
 | `--duration`         | Requested Tempo key lifetime, such as `30m`; accepts `s`, `m`, `h` |
 | `--interval-seconds` | Time between checks; default 60                                    |
@@ -29,9 +29,13 @@ Source amounts use the selected token's six decimals; ETH amounts use 18. Durati
 
 A 0.05 refill budget plus a 0.01 reserve requests a 0.06 Tempo allowance. Tempo counts transfers and network fees against that combined limit, including fees from reverted transactions. The reserve is headroom, not a fee quote or a separate onchain bucket. Fees can consume the remaining allowance and stop refills early. `--accept-network-fees` acknowledges their additional cost.
 
-Your Tempo passkey approves a dedicated key limited to the selected token and its transfer methods. The official Accounts SDK stores it privately in the job's state directory. Glue reads the signed grant before publication and the Tempo keychain once published. Tempo is the sole expiry authority; Glue never extends that expiry in the background.
+Gas refills reserve 0.01 of the requested amount for direct source execution and recovery; unused funds return less refund fees. This is inside the MPP charge, separate from `--fee-reserve`, which covers the paying wallet's network fees. Old deposit-address orders retain their original route and receipts.
 
-The destination, threshold and routing checks are Glue's job logic. They are not onchain permissions. Budget is reserved durably before signing, and refunds do not automatically replenish it.
+If the browser does not open during approval, use the printed Tempo Wallet link and verify its code. Keep that command running until approval completes.
+
+Your Tempo passkey approves a dedicated key limited to the selected source token. Gas services authorize transfer methods; token reserves authorize DEX approval and exact-output swaps. The official Accounts SDK stores it privately in the job's state directory. Glue reads the signed grant before publication and the Tempo keychain once published. Tempo is the sole expiry authority; Glue never extends that expiry in the background.
+
+The destination, threshold and routing checks are Glue's job logic. They are not onchain permissions. Budget is reserved durably before a payment can be submitted; refunds do not automatically replenish it.
 
 ## When a job stops paying
 
@@ -63,15 +67,15 @@ Keep the old files. A new job is a new allowance, so create it deliberately; do 
 
 Payment state defaults to `~/.local/state/glue/<policy-path-id>/`. It is bound to the policy's canonical path and content hash. Missing or changed installed state is an error, not permission to create a fresh budget.
 
-Service metadata and bounded logs live in `~/.local/state/glue/services/gas/`. Runtime `--rpc`, `--api` and `--state-dir` overrides supplied at installation are saved for scheduled ticks. Pass the same overrides when operating directly on the policy with `run`, `authorize` or `status --policy`.
+Service metadata and bounded logs live in `~/.local/state/glue/services/NAME/`. Runtime `--rpc`, `--api` and `--state-dir` overrides supplied at installation are saved for scheduled ticks. Pass the same overrides when operating directly on the policy with `run`, `authorize` or `status --policy`.
 
 An unknown submission keeps its original order and reserved budget. Glue never signs another payment to recover from a timeout. If the provider still reports unpaid, the worker reports `payment_unknown`; inspect Tempo Wallet and the saved order. Credentials are saved privately before submission.
 
-One worker holds `run.lock` in the payment state directory. Service-control commands use a separate lock in the service directory. After a hard crash, inspect the recorded PID; only after confirming that process exited, remove that lock file and resume. Never remove `state.json`, credentials or receipts to retry a payment.
+One worker holds `run.lock` in the payment state directory. Service-control commands use a separate lock in the service directory; installs and starts also lock the service registry to prevent overlapping registrations. After a hard crash, inspect the recorded PID; only after confirming that process exited, remove that lock file and resume. Never remove `state.json`, credentials or receipts to retry a payment.
 
 Interrupted passkey approvals remain recorded. Repeating authorization looks for the saved signed grant; it does not open another ceremony or replenish authority. Keep the state and inspect Tempo Wallet if approval remains unresolved.
 
-Older jobs retain their state. Version 1 jobs can reconcile payments; local services require version 2 with a native Tempo grant. Existing grants without fee reserves are never silently expanded.
+Older jobs retain their state. Version 1 jobs can reconcile payments; local services require version 2 (gas) or version 3 (ready, fleet, reserve), with a native Tempo grant. Existing grants without fee reserves are never silently expanded.
 
 ## Local scheduling
 
@@ -85,3 +89,13 @@ Native files:
 - Linux: `~/.config/systemd/user/com.figtracer.glue.gas.service` and `.timer`
 
 For a foreground worker, use `glue run --policy FILE --execute --accept-network-fees --watch`. For another scheduler, invoke the one-shot `run` with the same policy/state. Do not combine these with the installed service. `glue pause --policy FILE` stops new payments in the job itself; stop a foreground watcher before using it.
+
+## Named funding services
+
+Use `glue init ready|fleet|reserve --help` for the service-specific input. `glue install NAME --policy FILE --accept-network-fees --approve` registers a separate native timer under `com.figtracer.glue.NAME`. Existing `gas` names and version 2 policies remain valid. Manage names with `status`, `logs`, `stop`, `start` and `uninstall`.
+
+One job owns its saved state, grant and cumulative spending. Installing that same state twice is rejected, as are overlapping installed gas-funding destinations. Manual workers still require care: do not run a separate policy that funds the same wallet. Each fleet coordinates its members serially; it does not give each wallet a fresh copy of the budget.
+
+For new services, `--amount` is a maximum per action. A quote must cover the funding shortfall within that bound; `insufficient_refill_limit` or `insufficient_swap_limit` means the configured bound cannot cover it. Raise limits only by deliberately creating and authorizing a new job. `ready` is a timestamped funding estimate, not permission to deploy. Explicitly stop the job when its work is done.
+
+Reserve swaps save signed transactions privately beside state before broadcast. A missing receipt means pending, not failed or unpaid. Reverted swaps pause the job. Do not reset reservations or re-sign because an HTTP request timed out. Retirement of a fleet member never discards its pending payment.

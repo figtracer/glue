@@ -114,7 +114,7 @@ test("HTTP refill binds signing key, preserves credential, reconciles and spends
   assert.equal(signatures, 1);
 });
 test("MPP challenge rejects extra recipients, wrong token, amount and source chain", () => {
-  const pending = { offer: { paymentRecipient: config.sender } },
+  const pending = { body: { amount: config.amount }, offer: { paymentRecipient: config.sender } },
     challenge = {
       method: "tempo",
       intent: "charge",
@@ -162,7 +162,7 @@ test("installed MPP SDK prepares and rejects a mismatched challenge before signi
   });
   await assert.rejects(
     createWallet(config, dir).credential(
-      { offer: { paymentRecipient: config.sender } },
+      { body: { amount: config.amount }, offer: { paymentRecipient: config.sender } },
       response,
       config.sender,
     ),
