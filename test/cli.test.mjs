@@ -152,7 +152,7 @@ refill · Refill · local
   glue init refill --help
 
 refuel · On-demand refuel · web/mpp
-  Get gas now through the website or MPP API, including Sepolia routes.
+  Get ETH or Tron TRX now through the website or MPP API, including Sepolia ETH.
   https://glue.figtracer.com/llms.txt
 
 No Glue fees. Network and provider costs apply. Nothing enabled.
@@ -175,6 +175,14 @@ No Glue fees. Network and provider costs apply. Nothing enabled.
     assert.deepEqual(result, [all[0]]);
   }
   assert.deepEqual(all[0].chains, ["base", "ethereum", "arbitrum", "optimism"]);
+  assert.deepEqual(all[1].chains, [
+    "base",
+    "ethereum",
+    "arbitrum",
+    "optimism",
+    "robinhood",
+    "tron",
+  ]);
   assert.deepEqual(all[0].tokens, ["pathusd", "usdc.e"]);
   assert.deepEqual(
     all[0].modes.map(({ id }) => id),
