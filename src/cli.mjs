@@ -266,8 +266,10 @@ async function main() {
       {
         id: "refuel",
         name: "On-demand refuel",
-        description: "Get gas now through the website or MPP API, including Sepolia routes.",
+        description:
+          "Get ETH or Tron TRX now through the website or MPP API, including Sepolia ETH.",
         runs: "web/mpp",
+        chains: ["base", "ethereum", "arbitrum", "optimism", "robinhood", "tron"],
         tokens: Object.keys(TOKENS),
         docs: "https://glue.figtracer.com/llms.txt",
         website: "https://glue.figtracer.com",
